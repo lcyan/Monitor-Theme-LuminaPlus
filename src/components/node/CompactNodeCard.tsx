@@ -373,6 +373,9 @@ function CompactNodeChips({
   // 被裁剪 lane 折行挤出去的 tag 就靠这个保持可见,不用显示"+N"角标。
   const tagTitle = joinTagTitle(tags);
 
+  // 没有副标题、IP 和 tag 时整行不渲染,否则 min-height 会在卡片里留一条空白。
+  if (!subtitle && !ipv4 && !ipv6 && tags.length === 0) return null;
+
   return (
     <div className="compact-node-chip-row">
       {subtitle && (

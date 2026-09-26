@@ -1,18 +1,59 @@
 name: release
 
+# push 到 main 时：theme.json 的 version 对应的 Release 不存在才构建并发布（幂等），
+# 所以改完代码要 bump theme.json / package.json 的 version 才会出新版本。
+# push v* tag 时：tag 必须与 theme.json 版本一致。
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Read version from theme.json
+        id: meta
+        run: |
+          VERSION=$(node -p "require('./theme.json').version")
+          PKG=$(node -p "require('./package.json').version")
+          if [ "$VERSION" != "$PKG" ]; then
+            echo "::error::theme.json ($VERSION) 与 package.json ($PKG) 版本不一致"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check tag matches theme.json
+        if: github.ref_type == 'tag'
+        run: |
+          if [ "$GITHUB_REF_NAME" != "${{ steps.meta.outputs.tag }}" ]; then
+            echo "::error::tag $GITHUB_REF_NAME 与 theme.json 版本 ${{ steps.meta.outputs.tag }} 不一致"
+            exit 1
+          fi
+
+      - name: Skip if release exists
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.meta.outputs.tag }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "${{ steps.meta.outputs.tag }} 已发布，跳过"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -29,7 +70,16 @@ jobs:
             theme.tar.gz
             theme.tar.gz.sha256
             preview.png
-      - if: startsWith(github.ref, 'refs/tags/')
-        run: gh release create "$GITHUB_REF_NAME" theme.tar.gz theme.tar.gz.sha256 --generate-notes --repo "$GITHUB_REPOSITORY"
+
+      - name: Create tag and release
+        if: steps.check.outputs.skip == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          if ! gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA" >/dev/null
+          fi
+          gh release create "$TAG" theme.tar.gz theme.tar.gz.sha256 \
+            --title "LuminaPlus ${{ steps.meta.outputs.version }}" \
+            --generate-notes --repo "$GITHUB_REPOSITORY"

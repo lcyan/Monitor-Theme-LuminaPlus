@@ -157,7 +157,7 @@ describe("normalizeThemeSettings", () => {
 
   it("defaults home sort to weight ascending and falls back to a field's natural direction", () => {
     const base = normalizeThemeSettings({});
-    expect(base.enableHomeSort).toBe(true);
+    expect(base.enableHomeSort).toBe(false);
     expect(base.homeSortField).toBe("default");
     expect(base.homeSortDirection).toBe("asc");
 
