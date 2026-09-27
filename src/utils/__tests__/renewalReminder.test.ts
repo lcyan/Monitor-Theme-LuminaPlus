@@ -9,7 +9,9 @@ import {
 import { getExpireDaysRemaining } from "@/utils/format";
 
 const DAY_MS = 86_400_000;
-const NOW = Date.UTC(2026, 6, 12, 0, 0, 0);
+// 本地正午而不是 UTC 零点：到期天数按本地日历日计算，NOW 取本地零点附近的时刻
+// 会让期望值随时区漂移（UTC 的 CI 上差一天），正午在所有时区都落在同一天中间。
+const NOW = new Date(2026, 6, 12, 12, 0, 0).getTime();
 
 function inDays(days: number) {
   return new Date(NOW + days * DAY_MS).toISOString();
