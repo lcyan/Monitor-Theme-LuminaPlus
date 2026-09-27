@@ -92,6 +92,7 @@ export const NodeCard = memo(function NodeCard({
     expire,
     expireColor,
     uptime,
+    showCardPrice,
     renewalPrice,
     latencyColor,
     lossColor,
@@ -161,8 +162,9 @@ export const NodeCard = memo(function NodeCard({
             </div>
           )}
 
-          {multiPingActive ? (
-            homepagePingLines.length > 0 && <MultiPingStatus
+          {/* 多线路开着但一条线路都没配出来时回退单线路,不留空白（CFSM 同口径）。 */}
+          {multiPingActive && homepagePingLines.length > 0 ? (
+            <MultiPingStatus
               lines={homepagePingLines}
               density="large"
               className="card-metric-section"
@@ -187,7 +189,7 @@ export const NodeCard = memo(function NodeCard({
           expireColor={expireColor}
           uptime={uptime}
           footerTags={footerTags}
-          renewalPrice={showCosts ? renewalPrice : null}
+          renewalPrice={showCosts && showCardPrice ? renewalPrice : null}
         />
       </div>
     </article>

@@ -7,6 +7,7 @@ import {
   useNodePingOverview,
   useNodePingOverviewLines,
   usePingBuckets,
+  usePingTaskNames,
 } from "@/hooks/usePingOverview";
 import { useThemeSettings } from "@/hooks/useThemeSettings";
 import type { HomepagePingDisplayLine } from "@/types/models";
@@ -29,6 +30,7 @@ import {
 import { resolveTrafficUsage, trafficTypeLabel, type TrafficDisplay } from "@/utils/traffic";
 import { resolveOsInfo } from "@/components/ui/OsLogo";
 import {
+  isHomepageMultiPingConfigured,
   resolveVisibleHomepagePingTaskIds,
 } from "@/utils/pingTasks";
 
@@ -54,12 +56,18 @@ export function useNodeCardModel(
   const { meta, metrics, trafficTrend } = useNodeCardSnapshots(uuid);
   const {
     showCardGroup,
+    showCardPrice,
     fakePingForUnbound,
     enableHomepageMultiPing,
     homepageMultiPingTaskIds,
     homepageMultiPingNodeTaskIds,
   } = useThemeSettings();
-  const multiPingActive = includeMultiPing && enableHomepageMultiPing;
+  const pingTaskNames = usePingTaskNames();
+  // CFSM 口径：选 1~8 条都算多线路开启，选 0 条回退单线路（按节点各自的绑定显示一条）。
+  const multiPingActive =
+    includeMultiPing &&
+    enableHomepageMultiPing &&
+    isHomepageMultiPingConfigured(homepageMultiPingTaskIds);
   const realPing = useNodePingOverview(uuid, !multiPingActive);
   const realPingLines = useNodePingOverviewLines(uuid, multiPingActive);
   const hasRealHomepagePingBinding = useMemo(
@@ -83,13 +91,20 @@ export function useNodeCardModel(
     hasRealHomepagePingBinding,
     ping.isAssigned,
   );
+  // 掉线后延迟/丢包柱按最后一次上报截断，之后的格子涂红。用 `updatedAt` 而不是
+  // 「发现掉线的时刻」：前者是节点真正停止上报的时间，红色从那里开始才对得上。
+  const offlineSince =
+    metrics && metrics.online === false && metrics.updatedAt > 0 ? metrics.updatedAt : null;
   const pingBuckets = usePingBuckets(
     ping,
     pingBucketCount,
     !multiPingActive,
+    offlineSince,
   );
   // 与 usePingBuckets 同理:窗口按分钟前移,不依赖数据刷新才滑动。
   const bucketNow = useMinuteClock(multiPingActive);
+  // 行序与条数由全局线路选择决定（CFSM 口径）：选几条所有节点就显示几行；
+  // 这台节点未被后台分配某条线路时保留该行，显示「未分配/无样本」。
   const homepagePingLines = useMemo<HomepagePingDisplayLine[]>(() => {
     if (
       !multiPingActive
@@ -104,23 +119,39 @@ export function useNodeCardModel(
     );
     return visibleTaskIds.flatMap((taskId) => {
       const loaded = realPingLines.find((line) => line.taskId === taskId);
-      if (!loaded) return [];
-      const sourceLine = loaded;
-      if (
-        sourceLine.isAssigned === false ||
-        (sourceLine.loadState === "pending" && sourceLine.lastValue == null && sourceLine.loss == null)
-      ) return [];
-      return [{
-        ...sourceLine,
-        buckets: buildPingBuckets(sourceLine, pingBucketCount, bucketNow),
-      }];
+      if (loaded) {
+        const sourceLine = loaded;
+        if (
+          sourceLine.isAssigned === false ||
+          (sourceLine.loadState === "pending" && sourceLine.lastValue == null && sourceLine.loss == null)
+        ) return [];
+        return [{
+          ...sourceLine,
+          buckets: buildPingBuckets(sourceLine, pingBucketCount, bucketNow, offlineSince),
+        }];
+      }
+      const unassigned: HomepagePingDisplayLine = {
+        client: uuid,
+        taskId,
+        taskName: pingTaskNames.get(taskId) ?? `任务 #${taskId}`,
+        isAssigned: false,
+        loadState: "ready",
+        lastValue: null,
+        samples: [],
+        max: 1,
+        loss: null,
+        buckets: buildPingBuckets({ samples: [] }, pingBucketCount, bucketNow),
+      };
+      return [unassigned];
     });
   }, [
     bucketNow,
     homepageMultiPingNodeTaskIds,
     homepageMultiPingTaskIds,
     multiPingActive,
+    offlineSince,
     pingBucketCount,
+    pingTaskNames,
     realPingLines,
     uuid,
   ]);
@@ -150,11 +181,13 @@ export function useNodeCardModel(
       expire: formatExpireDays(meta.expired_at, now),
       expireColor: getExpireTextColor(meta.expired_at, now),
       trafficReset: getTrafficResetDisplay(meta.expired_at, now),
+      // 「卡片显示价格」只作用于大卡片（NodeCard 自己收敛）；小卡片等布局照旧显示。
+      showCardPrice,
       renewalPrice: formatRenewalPrice(meta),
       osName: resolveOsInfo(meta.os).name,
       loadBaseline: meta.cpu_cores > 0 ? meta.cpu_cores : 4,
     };
-  }, [meta, now, showCardGroup]);
+  }, [meta, now, showCardGroup, showCardPrice]);
 
   // ping 派生的颜色只在 ping item 变化时才变。
   const pingModel = useMemo(

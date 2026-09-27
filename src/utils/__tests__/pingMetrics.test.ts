@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { PingTaskStats } from "@/types/models";
 import {
+  bucketPingLoss,
+  formatPingLoss,
+  formatPingTooltipValue,
   mergePingMetricSeries,
   pingTasksFromMetricStats,
   reconcilePingMetricStats,
@@ -140,6 +143,55 @@ describe("reconcilePingMetricStats", () => {
       p99: 79,
     });
     expect(reconciled.loss).toBeCloseTo(100 / 3, 10);
+  });
+});
+
+describe("bucketPingLoss", () => {
+  it("merges samples into the nearest target slot by weighted average", () => {
+    const targets = [100, 200, 300];
+    const out = bucketPingLoss(
+      [
+        { time: 95, lost: 0, total: 3 },
+        { time: 105, lost: 1, total: 1 },
+        { time: 290, lost: 50, total: 100 },
+      ],
+      targets,
+    );
+    // 95/105 都就近归入 100：加权 (0/3 + 1/1)/4 = 25%。
+    expect(out[0]).toBeCloseTo(25, 8);
+    // 200 没有任何样本：保持 null（无数据），与丢包 0% 区分。
+    expect(out[1]).toBeNull();
+    expect(out[2]).toBeCloseTo(50, 8);
+  });
+
+  it("keeps partial bucket loss instead of snapping it to 100%", () => {
+    const out = bucketPingLoss([{ time: 100, lost: 66.7, total: 100 }], [100]);
+    expect(out[0]).toBeCloseTo(66.7, 8);
+  });
+
+  it("returns all null for empty samples and skips malformed entries", () => {
+    expect(bucketPingLoss([], [100, 200])).toEqual([null, null]);
+    expect(bucketPingLoss([{ time: Number.NaN, lost: 1, total: 1 }], [100])).toEqual([null]);
+    expect(bucketPingLoss([{ time: 100, lost: 1, total: 0 }], [100])).toEqual([null]);
+    expect(bucketPingLoss([{ time: 100, lost: 5, total: 10 }], [])).toEqual([]);
+  });
+});
+
+describe("formatPingLoss", () => {
+  it("keeps one decimal below 1% and rounds otherwise", () => {
+    expect(formatPingLoss(0)).toBe("0%");
+    expect(formatPingLoss(0.5)).toBe("0.5%");
+    expect(formatPingLoss(3.4)).toBe("3%");
+    expect(formatPingLoss(100)).toBe("100%");
+  });
+});
+
+describe("formatPingTooltipValue", () => {
+  it("puts loss before latency and omits zero-loss noise", () => {
+    expect(formatPingTooltipValue(20, 0)).toBe("20.0 ms");
+    expect(formatPingTooltipValue(20, 0.4)).toBe("丢包 0.4% · 20.0 ms");
+    expect(formatPingTooltipValue(null, 100)).toBe("丢包 100%");
+    expect(formatPingTooltipValue(null, null)).toBe("—");
   });
 });
 

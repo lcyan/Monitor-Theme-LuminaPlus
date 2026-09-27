@@ -741,8 +741,8 @@ export const CompactNodeCard = memo(function CompactNodeCard({
         renewalPrice={renewalPrice}
       />
       <CompactTrafficBar traffic={traffic} uptimeLabel={uptimeLabel} reset={trafficReset} />
-      {multiPingActive ? (
-        homepagePingLines.length > 0 && <MultiPingStatus
+      {multiPingActive && homepagePingLines.length > 0 ? (
+        <MultiPingStatus
           lines={homepagePingLines}
           density="compact"
           className="compact-node-bottom"

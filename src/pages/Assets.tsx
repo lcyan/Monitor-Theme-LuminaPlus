@@ -147,18 +147,23 @@ export function Assets() {
     enabled: costsVisible && nodes.length > 0,
     retry: 1,
   });
+  // 汇率拉取失败时用空表兜底（CFSM 同口径）：人民币计价节点照常计入统计,
+  // 外币节点在明细里标注「汇率缺失」;只有正在拉取时才显示加载态。
+  const EMPTY_RATES: Record<string, number> = {};
+  const ratesFetching = rateQuery.fetchStatus === "fetching" && !rateQuery.data;
+  const rates = rateQuery.data?.rates ?? (ratesFetching ? null : EMPTY_RATES);
   const summary = useMemo(
     () =>
-      costsVisible && rateQuery.data
+      costsVisible && rates
         ? calculateCostSummary(
             nodes,
             themeSettings.costIgnoredNodes,
-            rateQuery.data.rates,
+            rates,
             themeSettings.costPremiums,
             now,
           )
         : null,
-    [costsVisible, nodes, now, themeSettings.costIgnoredNodes, themeSettings.costPremiums, rateQuery.data],
+    [costsVisible, nodes, now, rates, themeSettings.costIgnoredNodes, themeSettings.costPremiums],
   );
   const detailRows = useMemo(() => {
     const direction = sortDirection === "asc" ? 1 : -1;
@@ -515,7 +520,7 @@ export function Assets() {
             </>
           ) : (
             <div className="cost-summary-empty">
-              {rateQuery.isError ? "汇率获取失败，点击右上角刷新重试" : "费用明细加载中"}
+              {ratesFetching ? "费用明细加载中" : "暂无可统计的费用明细"}
             </div>
           )}
 

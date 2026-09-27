@@ -66,6 +66,22 @@ export function classifyBillingCycleWord(
   if (/^(lifetime|once|one-time|永久|一次性|买断)$/.test(normalized)) {
     return { kind: "lifetime" };
   }
+
+  // 通用多年付兜底：two_years / 3 years / 5y / 三年 / 两年付 …（与 CFSM 版同一组模式）。
+  const englishYears = /^(\d+)[-_\s]*(y|yr|yrs|year|years)$/.exec(normalized);
+  if (englishYears) {
+    return { kind: "year", years: Number(englishYears[1]) };
+  }
+  const wordYears = /^(two|three|four|five)[-_\s]*years?$/.exec(normalized);
+  if (wordYears) {
+    const years = { two: 2, three: 3, four: 4, five: 5 }[wordYears[1]!]!;
+    return { kind: "year", years };
+  }
+  const chineseYears = /^([一两二三四五])年(付)?$/.exec(normalized);
+  if (chineseYears) {
+    const years = { 一: 1, 两: 2, 二: 2, 三: 3, 四: 4, 五: 5 }[chineseYears[1]!]!;
+    return { kind: "year", years };
+  }
   return null;
 }
 

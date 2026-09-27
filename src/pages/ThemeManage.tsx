@@ -73,7 +73,9 @@ import {
   normalizeHomeGroupOrder,
   sortHomeGroupOptions,
 } from "@/utils/homeNodes";
+import { MAX_RENEWAL_REMINDER_DAYS } from "@/utils/renewalReminder";
 import {
+  HOMEPAGE_MULTI_PING_MAX_COUNT,
   normalizeHomepageMultiPingNodeTaskIds,
   normalizeHomepageMultiPingTaskIds,
   type HomepageMultiPingNodeTaskIds,
@@ -229,13 +231,18 @@ function pickManagedThemeSettings(settings: ResolvedThemeSettings) {
     enableHomeHeaderAutoHide: settings.enableHomeHeaderAutoHide,
     homeHeaderVisibleSeconds: settings.homeHeaderVisibleSeconds,
     showHomeOverview: settings.showHomeOverview,
+    showAssetOverview: settings.showAssetOverview,
     showGroupTabs: settings.showGroupTabs,
     showRegionBar: settings.showRegionBar,
     showCardGroup: settings.showCardGroup,
     homeGroupOrder: settings.homeGroupOrder,
+    homeDefaultGroup: settings.homeDefaultGroup,
     enableHomeSort: settings.enableHomeSort,
+    offlineNodesFirst: settings.offlineNodesFirst,
     homeSortField: settings.homeSortField,
     homeSortDirection: settings.homeSortDirection,
+    showCardPrice: settings.showCardPrice,
+    renewalReminderDays: settings.renewalReminderDays,
     showCostsToGuests: settings.showCostsToGuests,
     showCostSummary: settings.showCostSummary,
     showCostSummaryFloatingButton: settings.showCostSummaryFloatingButton,
@@ -320,8 +327,38 @@ function draftFromSettings(settings: ResolvedThemeSettings): ThemeDraft {
   };
 }
 
-type BooleanDraftKey = {
-  [K in keyof ThemeDraft]: ThemeDraft[K] extends boolean ? K : never;
+/**
+ * 设置变了（别的设备改过、保存后 refetch 回流）时的新草稿：用户改过的项（和上次灌进来的
+ * 底不一样）留着，其余换成新值。原来是「表单有改动就整份不灌」—— 草稿里没改的几十项就
+ * 一直是打开页面时那份，保存时又当成改动存回去，别的设备上的改动被这台设备的旧值整份盖掉。
+ */
+export function rebaseDraft(current: ThemeDraft, base: ThemeDraft, next: ThemeDraft): ThemeDraft {
+  const out: Record<string, unknown> = { ...next };
+  for (const key of Object.keys(next) as (keyof ThemeDraft)[]) {
+    if (JSON.stringify(current[key]) !== JSON.stringify(base[key])) out[key] = current[key];
+  }
+  return out as ThemeDraft;
+}
+
+/** 保存只存和当前生效设置不一样的项，避免没动过的键把别的设备的改动盖回旧值。 */
+export function changedManagedSettings(
+  draftSettings: ThemeSettings,
+  source: ResolvedThemeSettings,
+): Record<string, unknown> {
+  const draftManaged = pickManagedThemeSettings(
+    normalizeThemeSettings(draftSettings as ThemeSettings & Record<string, unknown>),
+  );
+  const sourceManaged = pickManagedThemeSettings(source);
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(draftManaged) as Array<keyof typeof draftManaged>) {
+    if (JSON.stringify(draftManaged[key]) !== JSON.stringify(sourceManaged[key])) {
+      out[key] = (draftSettings as Record<string, unknown>)[key];
+    }
+  }
+  return out;
+}
+
+type BooleanDraftKey = {  [K in keyof ThemeDraft]: ThemeDraft[K] extends boolean ? K : never;
 }[keyof ThemeDraft];
 
 // 统一的「标题 + 说明 + 开关」行。memo + 稳定的 patch 引用:编辑无关字段的击键不再重渲这些行。
@@ -843,10 +880,14 @@ export function ThemeManage() {
     [sourceThemeSettings],
   );
   const lastSeededSignatureRef = useRef<string | null>(null);
+  /** 草稿是在哪份设置上改的（草稿形态）：rebaseDraft 据此分辨哪些项是用户改过的。 */
+  const draftBaseRef = useRef<ThemeDraft | null>(null);
 
   // 把服务端设置灌入草稿的唯一出口,reseed effect 和重置按钮都走它,避免两边逻辑漂移。
   const seedDrafts = useCallback((next: ResolvedThemeSettings) => {
-    setDraft(draftFromSettings(next));
+    const nextDraft = draftFromSettings(next);
+    draftBaseRef.current = nextDraft;
+    setDraft(nextDraft);
   }, []);
 
   const sortedTasks = useMemo(() => sortTasks(pingTasks ?? []), [pingTasks]);
@@ -1101,15 +1142,21 @@ export function ThemeManage() {
     if (isDirty) setMessage(null);
   }, [isDirty]);
 
-  // 服务端设置真正变化时灌入草稿。首次灌入之后,只要表单有未保存编辑(含保存中)就跳过,
-  // 避免 refetch / 其他端保存的回流静默覆盖用户草稿。
+  // 服务端设置真正变化时灌入草稿。首次整份灌；之后按项合并（rebaseDraft）：用户改过、还没存的
+  // 项留着，其余跟上新设置 —— refetch / 其他端保存的回流不会盖掉正在改的，没改的也不会停在旧值。
   useEffect(() => {
     if (!config) return;
     if (lastSeededSignatureRef.current === sourceSignature) return;
-    if (lastSeededSignatureRef.current !== null && isDirty) return;
     lastSeededSignatureRef.current = sourceSignature;
-    seedDrafts(sourceThemeSettings);
-  }, [config, isDirty, sourceSignature, sourceThemeSettings, seedDrafts]);
+    const base = draftBaseRef.current;
+    if (base === null) {
+      seedDrafts(sourceThemeSettings);
+      return;
+    }
+    const next = draftFromSettings(sourceThemeSettings);
+    draftBaseRef.current = next;
+    setDraft((current) => rebaseDraft(current, base, next));
+  }, [config, sourceSignature, sourceThemeSettings, seedDrafts]);
 
   const assignedNodeCount = useMemo(
     () =>
@@ -1150,9 +1197,11 @@ export function ThemeManage() {
     setError(null);
     setMessage(null);
     try {
+      // 只存和当前生效设置不一样的项：整份写回会让别的设备改过、这台没动过的项
+      // 被这台设备打开页面时的旧值盖掉。
       const nextSettings: ThemeSettings & Record<string, unknown> = {
         ...(config.theme_settings ?? {}),
-        ...draftThemeSettings,
+        ...changedManagedSettings(draftThemeSettings, sourceThemeSettings),
       };
       delete nextSettings.homepagePingTask;
       await saveThemeSettings(config.theme, nextSettings);
@@ -1761,6 +1810,13 @@ export function ThemeManage() {
             onPatch={patch}
           />
           <ToggleRow
+            field="showAssetOverview"
+            title="显示资产概览"
+            desc="「资产概览」把每月花多少钱亮给所有访客，单独一个开关，不跟着整排总览走。"
+            checked={draft.showAssetOverview}
+            onPatch={patch}
+          />
+          <ToggleRow
             field="showGroupTabs"
             title="显示分组筛选"
             desc="根据后端节点分组生成首页 Tab。"
@@ -1784,8 +1840,22 @@ export function ThemeManage() {
           <ToggleRow
             field="enableHomeSort"
             title="启用排序切换"
-            desc="首页显示排序控件，访客可临时切换排序方式（离线节点恒定置底）。"
+            desc="首页显示排序控件，访客可临时切换排序方式。"
             checked={draft.enableHomeSort}
+            onPatch={patch}
+          />
+          <ToggleRow
+            field="offlineNodesFirst"
+            title="离线节点排最前"
+            desc="开启后离线节点排在所有在线节点之前；关闭时离线节点沉底。"
+            checked={draft.offlineNodesFirst}
+            onPatch={patch}
+          />
+          <ToggleRow
+            field="showCardPrice"
+            title="大卡片显示价格"
+            desc="关闭后大卡片不再显示续费价格（小卡片等布局照旧显示）。"
+            checked={draft.showCardPrice}
             onPatch={patch}
           />
           <ToggleRow
@@ -1842,6 +1912,30 @@ export function ThemeManage() {
                 降序
               </button>
             </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div>
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <span className="text-[13px] font-medium text-[var(--text-primary)]">默认分组</span>
+              <span className="text-[11px] text-[var(--text-tertiary)]">
+                首屏预选的分组；后端没有该分组时留在「全部」。
+              </span>
+            </div>
+            <select
+              value={draft.homeDefaultGroup}
+              onChange={(event) => patch("homeDefaultGroup", event.target.value)}
+              aria-label="默认分组"
+              className="surface-inset w-full px-3 py-2 text-[13px] text-[var(--text-primary)] outline-none"
+            >
+              <option value="">全部</option>
+              {orderedDraftGroups.map((group) => (
+                <option key={group} value={group}>
+                  {group}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -2070,6 +2164,32 @@ export function ThemeManage() {
               checked={draft.showCostSummaryFloatingButton}
               onPatch={patch}
             />
+            <label className="surface-inset flex items-center justify-between gap-3 px-4 py-3">
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium text-[var(--text-primary)]">
+                  续费提醒提前天数
+                </span>
+                <span className="mt-1 block text-[11px] text-[var(--text-tertiary)]">
+                  提前几天开始提醒（0~60）；填 0 完全关闭续费提醒。
+                </span>
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={MAX_RENEWAL_REMINDER_DAYS}
+                value={draft.renewalReminderDays}
+                onChange={(event) => {
+                  const parsed = Number(event.target.value);
+                  if (!Number.isFinite(parsed)) return;
+                  patch(
+                    "renewalReminderDays",
+                    Math.min(MAX_RENEWAL_REMINDER_DAYS, Math.max(0, Math.round(parsed))),
+                  );
+                }}
+                aria-label="续费提醒提前天数"
+                className="surface-inset w-20 px-3 py-2 text-right text-[13px] tabular outline-none"
+              />
+            </label>
             <label className="flex flex-col gap-2">
               <span className="text-[12px] font-medium text-[var(--text-secondary)]">
                 实时汇率接口
@@ -2187,7 +2307,7 @@ export function ThemeManage() {
                   开启多线路模式
                 </span>
                 <span className="mt-1 block text-[11px] leading-relaxed text-[var(--text-tertiary)]">
-                  大卡片和小卡片自动显示后台为每台服务器分配的全部 Ping 任务。
+                  大/小卡片按这里选中的线路显示，选几条所有节点就显示几条；一条都没选时回退单线路模式。
                 </span>
               </span>
               <input
@@ -2204,10 +2324,10 @@ export function ThemeManage() {
               <div className="mt-4 border-t border-[var(--hairline)] pt-4">
                 <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
                   <span className="text-[12px] font-medium text-[var(--text-primary)]">
-                    全局优先顺序（可选）
+                    全局线路
                   </span>
                   <span className="text-[11px] text-[var(--text-tertiary)]">
-                    未列出的后台任务仍会显示
+                    选 1~{HOMEPAGE_MULTI_PING_MAX_COUNT} 条；卡片显示的线路与条数以这里为准
                   </span>
                 </div>
                 <div className="grid gap-3 md:grid-cols-3">
@@ -2262,11 +2382,18 @@ export function ThemeManage() {
                       );
                     })}
                 </div>
-                <button type="button" disabled={draft.homepageMultiPingTaskIds.length >= sortedTasks.length} onClick={() => changeMultiPingTasks((ids) => [...ids, sortedTasks.find((task) => !ids.includes(task.id))?.id ?? 0])} className="theme-manage-button is-compact mt-3">
-                  <Plus size={13} />添加优先线路
+                <button
+                  type="button"
+                  disabled={draft.homepageMultiPingTaskIds.length >= Math.min(HOMEPAGE_MULTI_PING_MAX_COUNT, sortedTasks.length)}
+                  onClick={() => changeMultiPingTasks((ids) => [...ids, sortedTasks.find((task) => !ids.includes(task.id))?.id ?? 0])}
+                  className="theme-manage-button is-compact mt-3"
+                >
+                  <Plus size={13} />添加线路
                 </button>
                 <p className="mt-3 text-[11px] leading-relaxed text-[var(--text-tertiary)]">
-                  默认显示后台分配的全部线路；这里仅调整靠前顺序，移除优先项不会隐藏任务。按服务器配置可单独选择显示哪些线路。
+                  {draft.homepageMultiPingTaskIds.length === 0
+                    ? "至少选 1 条线路后再保存，否则会回退到单线路模式。"
+                    : "选几条线路，所有节点就显示几条；节点未被后台分配某条线路时，该行显示「未分配」。按服务器配置仍可单独覆盖。"}
                 </p>
                 {invalidMultiPingOverrideCount > 0 && (
                   <div

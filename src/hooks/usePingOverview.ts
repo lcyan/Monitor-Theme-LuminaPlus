@@ -379,6 +379,8 @@ interface PingOverviewStoreState {
   intervalMs: number;
   singleItems: Map<string, PingOverviewItem>;
   multiLines: Map<string, HomepagePingLine[]>;
+  /** 所有节点线路里见过的任务名，供「全局选中但本节点未分配」的占位行取名字。 */
+  taskNames: ReadonlyMap<number, string>;
 }
 
 let pingOverviewState: PingOverviewStoreState = {
@@ -386,7 +388,34 @@ let pingOverviewState: PingOverviewStoreState = {
   intervalMs: DEFAULT_PING_REFRESH_INTERVAL,
   singleItems: new Map(),
   multiLines: new Map(),
+  taskNames: new Map(),
 };
+
+/** 从全部节点的线路聚合出任务名表（首个出现的名字优先，任务 id 升序无关）。 */
+function collectTaskNames(
+  multiLines: ReadonlyMap<string, HomepagePingLine[]>,
+): ReadonlyMap<number, string> {
+  const names = new Map<number, string>();
+  for (const lines of multiLines.values()) {
+    for (const line of lines) {
+      if (!names.has(line.taskId)) names.set(line.taskId, line.taskName);
+    }
+  }
+  return names;
+}
+
+function equalTaskNames(
+  left: ReadonlyMap<number, string>,
+  right: ReadonlyMap<number, string>,
+) {
+  if (left.size !== right.size) return false;
+  for (const [taskId, name] of left) {
+    if (right.get(taskId) !== name) return false;
+  }
+  return true;
+}
+
+const pingTaskNameListeners = new Set<Listener>();
 let pingOverviewStatus: PingOverviewStatusSnapshot = EMPTY_PING_STATUS;
 let scheduledVisibleUuids: string[] = [];
 let scheduledVisibleKey = "";
@@ -706,12 +735,18 @@ function commitPingOverview(
   }
 
   if (!dataUnchanged) {
+    const nextTaskNames = collectTaskNames(nextMultiLines);
+    const taskNamesChanged = !equalTaskNames(pingOverviewState.taskNames, nextTaskNames);
     pingOverviewState = {
       assignmentKey,
       intervalMs,
       singleItems: nextSingleItems,
       multiLines: nextMultiLines,
+      taskNames: nextTaskNames,
     };
+    if (taskNamesChanged) {
+      for (const listener of pingTaskNameListeners) listener();
+    }
   }
 
   setPingOverviewStatus(nextStatus, nextIsRefreshing);
@@ -956,11 +991,43 @@ export function useNodePingOverviewLines(
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
+/**
+ * 全局任务名表（所有节点线路里出现过的任务）。多线路模式下「全局选中但这台节点
+ * 未被后台分配」的占位行用它取名字；从未在任何节点上出现过的任务回退「任务 #id」。
+ */
+export function usePingTaskNames(): ReadonlyMap<number, string> {
+  const subscribe = useCallback((cb: Listener) => {
+    pingTaskNameListeners.add(cb);
+    return () => {
+      pingTaskNameListeners.delete(cb);
+    };
+  }, []);
+  const getSnapshot = useCallback(() => pingOverviewState.taskNames, []);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/**
+ * 掉线之后的柱子怎么画（与 CFSM 版同一套行为，适配 monitor 的聚合采样模型）。
+ *
+ * `offlineSince` 是节点最后一次上报的时刻（在线时传 null）。它做两件事：
+ * 1. 丢掉时间戳晚于它的样本——ws 快照在节点掉线后可能还带着最后一次的缓存值，
+ *    不挡掉就会拿旧值填满掉线段。
+ * 2. 整格都落在它之后的桶标成 `offline`，由卡片涂红。注意是「整格」——掉线当下
+ *    那一格还压着在线数据，要等它被掉线时间填满才变红，柱子于是一格一格往左推。
+ */
+function resolveOfflineSince(offlineSince?: number | null): number | null {
+  return typeof offlineSince === "number" && Number.isFinite(offlineSince) && offlineSince > 0
+    ? offlineSince
+    : null;
+}
+
 export function buildPingBuckets(
   ping: Pick<PingOverviewItem, "samples" | "metricIntervalMs">,
   count?: number,
   now = Date.now(),
+  offlineSince?: number | null,
 ): PingOverviewBucket[] {
+  const offlineAt = resolveOfflineSince(offlineSince);
   const totalWindowMs = 60 * 60 * 1000;
   const requestedCount = count ?? MAX_VISIBLE_HOMEPAGE_PING_BUCKETS;
   const boundedRequestedCount =
@@ -998,10 +1065,13 @@ export function buildPingBuckets(
     }
   };
 
+  // 掉线之后的样本一律不认：ws 快照可能还在沿用最后一次的缓存值。
+  const beforeOffline = (time: number) => offlineAt == null || time <= offlineAt;
+
   for (const sample of ping.samples ?? []) {
     if (metricIntervalMs > bucketMs) {
       const sampleEnd = sample.time + metricIntervalMs;
-      if (sampleEnd <= windowStart || sample.time > now) continue;
+      if (sampleEnd <= windowStart || sample.time > now || !beforeOffline(sample.time)) continue;
 
       // 后端时间戳是聚合桶起点。以每个可视 bucket 的中点判断它属于哪个
       // 聚合区间，相当于对粗粒度数据做 sample-and-hold：不会制造规律性空洞，
@@ -1018,7 +1088,7 @@ export function buildPingBuckets(
     let sampleTime = sample.time;
     if (metricIntervalMs > 0) {
       const sampleEnd = sample.time + metricIntervalMs;
-      if (sampleEnd <= windowStart || sample.time > now) continue;
+      if (sampleEnd <= windowStart || sample.time > now || !beforeOffline(sample.time)) continue;
       const overlapStart = Math.max(sample.time, windowStart);
       const overlapEnd = Math.min(sampleEnd, now);
       if (overlapEnd < overlapStart) continue;
@@ -1037,17 +1107,20 @@ export function buildPingBuckets(
     const startAt = windowStart + index * bucketMs;
     const endAt = startAt + bucketMs;
     const total = totals[index];
+    // 丢包率用未取整的累计值算：先对 lost 取整会把稀疏桶的 1/4 压成 0%，
+    // 桶里就只剩 0 和 100 两种丢包（与 CFSM 版同一口径）。
     const lost = Math.round(losts[index]);
     const positiveCount = positiveCounts[index];
 
     return {
       index,
       value: positiveCount > 0 ? positiveSums[index] / positiveCount : null,
-      loss: total > 0 ? (lost / total) * 100 : null,
+      loss: total > 0 ? (losts[index] / total) * 100 : null,
       total,
       lost,
       startAt,
       endAt,
+      offline: offlineAt != null && startAt >= offlineAt,
     };
   });
 }
@@ -1056,6 +1129,7 @@ export function usePingBuckets(
   ping: Pick<PingOverviewItem, "samples" | "metricIntervalMs">,
   count?: number,
   enabled = true,
+  offlineSince?: number | null,
 ): PingOverviewBucket[] {
   const { samples, metricIntervalMs } = ping;
   // 轮询返回同引用数据时窗口也要随时间前移,否则时间轴最多滞后约 2 个桶;分钟粒度足够
@@ -1064,9 +1138,9 @@ export function usePingBuckets(
   return useMemo(
     () =>
       enabled
-        ? buildPingBuckets({ samples, metricIntervalMs }, count, now)
+        ? buildPingBuckets({ samples, metricIntervalMs }, count, now, offlineSince)
         : EMPTY_PING_BUCKETS,
-    [count, enabled, metricIntervalMs, now, samples],
+    [count, enabled, metricIntervalMs, now, offlineSince, samples],
   );
 }
 

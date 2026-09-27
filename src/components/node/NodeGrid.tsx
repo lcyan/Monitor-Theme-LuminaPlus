@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleDollarSign } from "lucide-react";
@@ -11,6 +11,7 @@ import {
   useNodeStoreStatus,
 } from "@/hooks/useNode";
 import { useHomepagePingOverview } from "@/hooks/usePingOverview";
+import { usePacedRate } from "@/hooks/usePacedRate";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { useThemeSettings } from "@/hooks/useThemeSettings";
 import { useViewMode } from "@/hooks/useViewMode";
@@ -129,6 +130,8 @@ function HomeOverviewCards({
   showCosts,
   showDetailButton,
   renewalNodes,
+  renewalReminderDays,
+  showAssetCard,
   dense,
   onWarmTraffic,
 }: {
@@ -146,12 +149,16 @@ function HomeOverviewCards({
   showCosts: boolean;
   showDetailButton: boolean;
   renewalNodes: RenewalReminderSource[];
+  renewalReminderDays: number;
+  showAssetCard: boolean;
   onWarmTraffic: () => void;
 }) {
   const [trafficValue, trafficUnit] = formatBytes(
     overview.trafficUp + overview.trafficDown,
   ).split(" ");
-  const rate = formatByteRate(overview.netUp + overview.netDown);
+  // 聚合带宽走 1 秒节拍：各节点 ws 相位不同,求和可能一秒内跳好几次（与 CFSM 版同一处理）。
+  const pacedRate = usePacedRate(overview.netUp, overview.netDown);
+  const rate = formatByteRate(pacedRate.up + pacedRate.down);
   const onlinePct =
     overview.totalNodes > 0 ? (overview.onlineNodes / overview.totalNodes) * 100 : 0;
   const offlinePct =
@@ -281,19 +288,23 @@ function HomeOverviewCards({
         </div>
       </article>
 
-      <article className="overview-card" data-metric="asset">
-        <div className="overview-card-head">
-          <span className="overview-card-label">资产概览</span>
-          {showDetailButton && <RenewalReminder nodes={renewalNodes} />}
-        </div>
-        <div className="overview-card-main">
-          <p className="overview-card-value">{remainingValue}</p>
-        </div>
-        <div className="overview-card-footer">
-          <p className="overview-card-caption">实时汇率计算</p>
-          {renderRating(assetRating)}
-        </div>
-      </article>
+      {showAssetCard && (
+        <article className="overview-card" data-metric="asset">
+          <div className="overview-card-head">
+            <span className="overview-card-label">资产概览</span>
+            {showDetailButton && renewalReminderDays > 0 && (
+            <RenewalReminder nodes={renewalNodes} warningDays={renewalReminderDays} />
+          )}
+          </div>
+          <div className="overview-card-main">
+            <p className="overview-card-value">{remainingValue}</p>
+          </div>
+          <div className="overview-card-footer">
+            <p className="overview-card-caption">实时汇率计算</p>
+            {renderRating(assetRating)}
+          </div>
+        </article>
+      )}
     </section>
   );
 }
@@ -466,12 +477,14 @@ export function NodeGrid() {
     };
   }, [visibleNodes]);
   const showHomeOverview = themeSettings.isReady && themeSettings.showHomeOverview;
-  const showTrafficPopover = themeSettings.isReady && themeSettings.showTodayTrafficPopover;
   const hasNodes = visibleMeta.length > 0;
+  // 「资产概览」把每月花多少钱亮给所有访客，单独一个开关，不跟着整排总览走。
+  const showAssetCard = showHomeOverview && hasNodes && themeSettings.showAssetOverview;
+  const showTrafficPopover = themeSettings.isReady && themeSettings.showTodayTrafficPopover;
   // 卡内入口与悬浮入口互斥，避免重复操作入口。
   const costOverviewNeeded = showHomeOverview && costsVisible && hasNodes;
   const showCostDetailButton =
-    costOverviewNeeded && themeSettings.isReady && themeSettings.showCostSummary;
+    costOverviewNeeded && themeSettings.isReady && themeSettings.showCostSummary && showAssetCard;
   const showCostFloatingButton =
     themeSettings.isReady &&
     costsVisible &&
@@ -554,8 +567,9 @@ export function NodeGrid() {
         : groupFilteredNodes.filter((node) => getDisplayRegionCode(node.region) === selectedRegion),
     [groupFilteredNodes, selectedRegion],
   );
-  // 排序在分组筛选之后。离线永远沉底(写死,见 homeSort);实时网速走防抖(键平滑+滞回+5s 重排)。
+  // 排序在分组筛选之后。离线节点按设置置顶/沉底;实时网速走防抖(键平滑+滞回+5s 重排)。
   const orderedNodes = useHomeNodeOrder({
+    offlineFirst: themeSettings.isReady && themeSettings.offlineNodesFirst,
     nodes: filteredNodes,
     field: sortField,
     direction: sortDirection,
@@ -568,6 +582,17 @@ export function NodeGrid() {
       setSelectedGroup(HOME_ALL_GROUP);
     }
   }, [groupOptions, selectedGroup]);
+
+  // 站长设的默认分组只在首屏套一次：后面访客自己点了哪组就是哪组，配置回流不该把人拽回去。
+  // 后端没有这个分组（改名 / 删了）时留在「全部」。
+  const defaultGroupApplied = useRef(false);
+  useEffect(() => {
+    if (defaultGroupApplied.current) return;
+    if (!themeSettings.isReady || groupOptions.length === 0) return;
+    defaultGroupApplied.current = true;
+    const preset = themeSettings.homeDefaultGroup;
+    if (preset && groupOptions.includes(preset)) setSelectedGroup(preset);
+  }, [groupOptions, themeSettings.homeDefaultGroup, themeSettings.isReady]);
 
   // 选中的地区在当前分组里不存在了(切换分组/节点变化)就回到全部。
   useEffect(() => {
@@ -699,6 +724,8 @@ export function NodeGrid() {
           showDetailButton={showCostDetailButton}
           showCosts={costsVisible}
           renewalNodes={renewalNodes}
+          renewalReminderDays={themeSettings.renewalReminderDays}
+          showAssetCard={showAssetCard}
           costSummary={costSummary}
           costLoading={costLoading}
           showOverviewRatings={themeSettings.showOverviewRatings}

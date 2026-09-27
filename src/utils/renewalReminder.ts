@@ -4,7 +4,8 @@ import { getExpireDaysRemaining, resolveExpireTimestamp } from "@/utils/format";
 
 const DAY_MS = 86_400_000;
 
-export const RENEWAL_WARNING_DAYS = 7;
+export const DEFAULT_RENEWAL_REMINDER_DAYS = 7;
+export const MAX_RENEWAL_REMINDER_DAYS = 60;
 export const RENEWAL_SNOOZE_DAYS = 1;
 export const RENEWAL_SNOOZE_MS = RENEWAL_SNOOZE_DAYS * DAY_MS;
 
@@ -41,6 +42,8 @@ export interface RenewalReminderPreferences {
 
 export interface RenewalReminderOptions {
   requireOnlineForExpired?: boolean;
+  /** 提前几天开始提醒；缺省用 DEFAULT_RENEWAL_REMINDER_DAYS。0 = 一条都不提醒。 */
+  warningDays?: number;
 }
 
 export const EMPTY_RENEWAL_REMINDER_PREFERENCES: RenewalReminderPreferences = {
@@ -59,6 +62,8 @@ export function getRenewalReminders(
   options: RenewalReminderOptions = {},
 ): RenewalReminderItem[] {
   const reminders: RenewalReminderItem[] = [];
+  const warningDays = options.warningDays ?? DEFAULT_RENEWAL_REMINDER_DAYS;
+  if (warningDays <= 0) return reminders;
 
   for (const node of nodes) {
     const expiresAt = resolveExpireTimestamp(node.expired_at);
@@ -67,7 +72,7 @@ export function getRenewalReminders(
     // 与节点卡、列表和资产页共用同一套向下取整口径，避免同屏出现 2 天/3 天。
     const daysRemaining = getExpireDaysRemaining(expiresAt, now);
     if (daysRemaining == null) continue;
-    if (daysRemaining > RENEWAL_WARNING_DAYS) continue;
+    if (daysRemaining > warningDays) continue;
 
     const expired = daysRemaining < 0;
     // 首页可要求过期节点必须明确在线：状态尚未返回（null/undefined）时先不展示，

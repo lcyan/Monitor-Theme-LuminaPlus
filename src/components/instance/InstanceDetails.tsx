@@ -76,6 +76,7 @@ export function InstanceDetails({
           />
           <InfoRow label="架构" value={meta.arch || "—"} />
           <InfoRow label="虚拟化" value={meta.virtualization || "—"} />
+          <InfoRow label="内核版本" value={meta.kernel_version || "—"} />
           <InfoRow label="显卡" value={meta.gpu_name || "—"} />
           <InfoRow label="操作系统" value={meta.os || "—"} />
         </div>

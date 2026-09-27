@@ -89,13 +89,14 @@ describe("renewal reminders", () => {
     expect(RENEWAL_SNOOZE_MS).toBe(DAY_MS);
   });
 
-  it("uses the same whole-day rounding as cards and the assets page", () => {
+  it("counts calendar days the same way cards and the assets page do", () => {
+    // CFSM 口径:到期按日历日计算(带时刻的取本地日期),不再按剩余毫秒向下取整。
     const expiresAt = NOW + 3 * DAY_MS - 1;
     const [reminder] = getRenewalReminders(
       [node({ expired_at: new Date(expiresAt).toISOString() })],
       NOW,
     );
-    expect(reminder.daysRemaining).toBe(2);
+    expect(reminder.daysRemaining).toBe(3);
     expect(reminder.daysRemaining).toBe(getExpireDaysRemaining(expiresAt, NOW));
   });
 

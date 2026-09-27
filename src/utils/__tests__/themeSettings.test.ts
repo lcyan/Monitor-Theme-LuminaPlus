@@ -124,7 +124,8 @@ describe("normalizeThemeSettings", () => {
   });
 
   it("normalizes homepage multi-ping tasks while preserving an enabled draft for repair", () => {
-    expect(normalizeThemeSettings({}).enableHomepageMultiPing).toBe(false);
+    // CFSM 对齐:多线路开关默认开启;一条都没选时首页回退单线路模式。
+    expect(normalizeThemeSettings({}).enableHomepageMultiPing).toBe(true);
     expect(
       normalizeThemeSettings({
         enableHomepageMultiPing: true,
@@ -157,7 +158,8 @@ describe("normalizeThemeSettings", () => {
 
   it("defaults home sort to weight ascending and falls back to a field's natural direction", () => {
     const base = normalizeThemeSettings({});
-    expect(base.enableHomeSort).toBe(false);
+    // CFSM 对齐:分组筛选/地区栏/卡片分组/排序切换等首页开关默认开启。
+    expect(base.enableHomeSort).toBe(true);
     expect(base.homeSortField).toBe("default");
     expect(base.homeSortDirection).toBe("asc");
 

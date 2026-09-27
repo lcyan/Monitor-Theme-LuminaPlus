@@ -3,6 +3,9 @@ import { getLoadRecords, getPingRecords } from "@/services/api";
 
 const RECORD_QUERY_OPTIONS = {
   staleTime: 300_000,
+  // 详情页 5 分钟内重进时必须重新拉取,否则图表停留在上一次的窗口;
+  // requestHistory 的共享缓存会把并发请求合并成一次,不会真的多打。
+  refetchOnMount: "always",
   refetchOnWindowFocus: false,
   refetchOnReconnect: false,
 } as const;

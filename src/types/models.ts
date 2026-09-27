@@ -373,4 +373,6 @@ export interface PingOverviewBucket {
   lost: number;
   startAt: number | null;
   endAt: number | null;
+  /** 整格都落在节点掉线之后：卡片把这一格涂满红，而不是显示成「无样本」。 */
+  offline?: boolean;
 }

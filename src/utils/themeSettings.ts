@@ -33,6 +33,7 @@ import {
   type HomepageMultiPingNodeTaskIds,
   type HomepagePingTaskBindings,
 } from "@/utils/pingTasks";
+import { DEFAULT_RENEWAL_REMINDER_DAYS, MAX_RENEWAL_REMINDER_DAYS } from "@/utils/renewalReminder";
 
 export type Appearance = "system" | "light" | "dark";
 export type NodeViewMode = "large" | "compact" | "mini" | "list";
@@ -69,13 +70,23 @@ export interface ResolvedThemeSettings {
   enableHomeHeaderAutoHide: boolean;
   homeHeaderVisibleSeconds: number;
   showHomeOverview: boolean;
+  /** 「资产概览」总览卡的独立开关（不跟着整排总览走）。 */
+  showAssetOverview: boolean;
   showGroupTabs: boolean;
   showRegionBar: boolean;
   showCardGroup: boolean;
   homeGroupOrder: string[];
+  /** 首屏预选的节点分组；空串 = 「全部」。 */
+  homeDefaultGroup: string;
   enableHomeSort: boolean;
+  /** 离线节点排最前（CFSM 对齐；缺省沉底）。 */
+  offlineNodesFirst: boolean;
   homeSortField: HomeSortField;
   homeSortDirection: HomeSortDirection;
+  /** 大卡片是否显示续费价格（小卡片等布局不受影响）。 */
+  showCardPrice: boolean;
+  /** 续费提醒提前天数：0~60，0 = 不提醒。 */
+  renewalReminderDays: number;
   showCostsToGuests: boolean;
   showCostSummary: boolean;
   showCostSummaryFloatingButton: boolean;
@@ -125,13 +136,18 @@ export const DEFAULT_THEME_SETTINGS: ResolvedThemeSettings = {
   enableHomeHeaderAutoHide: false,
   homeHeaderVisibleSeconds: 10,
   showHomeOverview: true,
-  showGroupTabs: false,
-  showRegionBar: false,
-  showCardGroup: false,
+  showAssetOverview: true,
+  showGroupTabs: true,
+  showRegionBar: true,
+  showCardGroup: true,
   homeGroupOrder: [],
-  enableHomeSort: false,
+  homeDefaultGroup: "",
+  enableHomeSort: true,
+  offlineNodesFirst: false,
   homeSortField: "default",
   homeSortDirection: HOME_SORT_NATURAL_DIRECTION.default,
+  showCardPrice: true,
+  renewalReminderDays: DEFAULT_RENEWAL_REMINDER_DAYS,
   showCostsToGuests: true,
   showCostSummary: true,
   showCostSummaryFloatingButton: true,
@@ -265,6 +281,17 @@ function normalizeHomeSortDefault(
   };
 }
 
+function normalizeHomeDefaultGroup(value: unknown): string {
+  return typeof value === "string" && value.trim() !== "" ? value.trim().slice(0, 120) : "";
+}
+
+/** 提醒天数：0~60 的整数，0 = 不提醒；写坏了回到默认。 */
+function normalizeRenewalReminderDays(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_RENEWAL_REMINDER_DAYS;
+  return Math.min(MAX_RENEWAL_REMINDER_DAYS, Math.max(0, Math.round(parsed)));
+}
+
 export function normalizeThemeSettings(
   settings: (ThemeSettings & Record<string, unknown>) | null | undefined,
 ): ResolvedThemeSettings {
@@ -287,7 +314,7 @@ export function normalizeThemeSettings(
     showPingChart: enabledUnlessFalse(settings?.showPingChart),
     homepagePingBindings: normalizeHomepagePingTaskBindings(settings?.homepagePingBindings),
     // 保留开关原值，让管理页能呈现并修复尚未选择默认线路的配置。
-    enableHomepageMultiPing: settings?.enableHomepageMultiPing === true,
+    enableHomepageMultiPing: enabledUnlessFalse(settings?.enableHomepageMultiPing),
     homepageMultiPingTaskIds,
     homepageMultiPingNodeTaskIds: normalizeHomepageMultiPingNodeTaskIds(
       settings?.homepageMultiPingNodeTaskIds,
@@ -299,11 +326,14 @@ export function normalizeThemeSettings(
       settings?.homeHeaderVisibleSeconds,
     ),
     showHomeOverview: enabledUnlessFalse(settings?.showHomeOverview),
-    showGroupTabs: settings?.showGroupTabs === true,
-    showRegionBar: settings?.showRegionBar === true,
-    showCardGroup: settings?.showCardGroup === true,
+    showAssetOverview: enabledUnlessFalse(settings?.showAssetOverview),
+    showGroupTabs: enabledUnlessFalse(settings?.showGroupTabs),
+    showRegionBar: enabledUnlessFalse(settings?.showRegionBar),
+    showCardGroup: enabledUnlessFalse(settings?.showCardGroup),
     homeGroupOrder: normalizeHomeGroupOrder(settings?.homeGroupOrder),
-    enableHomeSort: settings?.enableHomeSort === true,
+    homeDefaultGroup: normalizeHomeDefaultGroup(settings?.homeDefaultGroup),
+    enableHomeSort: enabledUnlessFalse(settings?.enableHomeSort),
+    offlineNodesFirst: settings?.offlineNodesFirst === true,
     ...normalizeHomeSortDefault(settings?.homeSortField, settings?.homeSortDirection),
     // 默认公开以保持存量站点升级后的展示行为；站长可显式关闭访客费用展示。
     showCostsToGuests: enabledUnlessFalse(settings?.showCostsToGuests),
@@ -313,6 +343,8 @@ export function normalizeThemeSettings(
     showTrafficRating: enabledUnlessFalse(settings?.showTrafficRating),
     showBandwidthRating: enabledUnlessFalse(settings?.showBandwidthRating),
     showAssetRating: enabledUnlessFalse(settings?.showAssetRating),
+    showCardPrice: enabledUnlessFalse(settings?.showCardPrice),
+    renewalReminderDays: normalizeRenewalReminderDays(settings?.renewalReminderDays),
     trafficRatingLabels: normalizePlainText(settings?.trafficRatingLabels),
     bandwidthRatingLabels: normalizePlainText(settings?.bandwidthRatingLabels),
     assetRatingLabels: normalizePlainText(settings?.assetRatingLabels),

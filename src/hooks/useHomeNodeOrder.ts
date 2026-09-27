@@ -12,6 +12,8 @@ import {
 } from "@/utils/homeSort";
 
 interface Params {
+  /** 离线节点排最前（设置项 offlineNodesFirst）；缺省置底。 */
+  offlineFirst?: boolean;
   nodes: HomeNodeSummary[];
   field: HomeSortField;
   direction: HomeSortDirection;
@@ -25,12 +27,15 @@ const EMPTY_PRICE_MAP = new Map<string, number | null>();
 const EMPTY_SET = new Set<string>();
 
 export function useHomeNodeOrder({
+  offlineFirst = false,
   nodes,
   field,
   direction,
   nameByUuid,
   priceByUuid,
 }: Params): HomeNodeSummary[] {
+  const offlineFirstRef = useRef(offlineFirst);
+  offlineFirstRef.current = offlineFirst;
   const ringRef = useRef<Map<string, number[]>>(new Map());
   const nodesRef = useRef(nodes);
   useEffect(() => {
@@ -64,8 +69,9 @@ export function useHomeNodeOrder({
       speedAvgByUuid: EMPTY_NUMBER_MAP,
       priceByUuid,
       speedActive: EMPTY_SET,
+      offlineFirst,
     });
-  }, [field, direction, nodes, nameByUuid, priceByUuid]);
+  }, [field, direction, nodes, nameByUuid, offlineFirst, priceByUuid]);
 
   const [speedUuids, setSpeedUuids] = useState<string[]>([]);
   const activeRef = useRef<Set<string>>(new Set());
@@ -94,6 +100,7 @@ export function useHomeNodeOrder({
         speedAvgByUuid: avg,
         priceByUuid: EMPTY_PRICE_MAP,
         speedActive: next,
+        offlineFirst: offlineFirstRef.current,
       });
       const nextUuids = ordered.map((node) => node.uuid);
       setSpeedUuids((previous) =>
@@ -109,7 +116,7 @@ export function useHomeNodeOrder({
   }, [field, direction]);
 
   const speedOrder = useMemo(
-    () => (field === "speed" ? reconcileSpeedOrder(nodes, speedUuids) : null),
+    () => (field === "speed" ? reconcileSpeedOrder(nodes, speedUuids, offlineFirstRef.current) : null),
     [field, nodes, speedUuids],
   );
 

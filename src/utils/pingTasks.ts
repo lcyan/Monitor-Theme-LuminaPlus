@@ -1,6 +1,21 @@
 export type HomepagePingTaskBindings = Record<string, string[]>;
 export type HomepageMultiPingNodeTaskIds = Record<string, number[]>;
 
+/**
+ * 多线路模式最多同时显示几条线路（与 CFSM 的槽位上限一致：8）。选满 8 条后设置页的
+ * 「添加线路」按钮禁用，normalize 也会把超出的部分裁掉。
+ */
+export const HOMEPAGE_MULTI_PING_MAX_COUNT = 8;
+
+/** 至少选几条才算配置好。**1 条也是合法配置**：站长可能只关心一条线路，但仍想要
+ * 多线路模式那套「每条线各一行延迟 + 丢包」的排版。选 0 条回退单线路模式。 */
+export const HOMEPAGE_MULTI_PING_MIN_COUNT = 1;
+
+/** 多线路模式的任务选够了没有。首页消费方与设置页的校验共用这一条口径。 */
+export function isHomepageMultiPingConfigured(taskIds: readonly number[]): boolean {
+  return taskIds.length >= HOMEPAGE_MULTI_PING_MIN_COUNT;
+}
+
 const invertedBindingsCache = new WeakMap<HomepagePingTaskBindings, Map<string, number>>();
 
 function parseTaskId(taskId: string) {
@@ -22,6 +37,7 @@ export function normalizeHomepageMultiPingTaskIds(value: unknown): number[] {
           : null;
     if (taskId == null || normalized.includes(taskId)) continue;
     normalized.push(taskId);
+    if (normalized.length === HOMEPAGE_MULTI_PING_MAX_COUNT) break;
   }
   return normalized;
 }
@@ -62,7 +78,10 @@ export function createHomepageMultiPingTaskOverride(
   return orderedTaskIds.length > 0 ? orderedTaskIds : null;
 }
 
-/** 后台分配是任务来源；全局配置只把指定任务排在前面，未列出的任务继续显示。 */
+/**
+ * 把后台分配的任务按全局线路选择排到前面（仅用于设置页「按服务器单独配置」的
+ * 初始化排序——首页显示线路已改用 CFSM 口径的全局选择，不再经过这里）。
+ */
 export function orderHomepagePingTaskIds(
   assignedTaskIds: number[],
   preferredTaskIds: number[],
@@ -75,17 +94,24 @@ export function orderHomepagePingTaskIds(
   return [...preferred, ...assigned.filter((taskId) => !preferredSet.has(taskId))];
 }
 
-/** 单独配置显式选择要显示的任务，其余服务器始终显示后台分配的全部任务。 */
+/**
+ * 多线路模式下这台节点实际显示哪几条线路（CFSM 口径）：全局选中的任务就是显示的
+ * 线路与条数，选几条所有节点就显示几条。节点未被后台分配某条线路时，由调用方
+ * （useNodeCardModel）渲染「未分配」占位行，而不是悄悄少一行。按服务器单独配置的
+ * 节点仍按其显式选择显示（限定在后台分配范围内）。全局一条都没选时返回空数组——
+ * 调用方应回退单线路模式（isHomepageMultiPingConfigured 为 false）。
+ */
 export function resolveVisibleHomepagePingTaskIds(
   uuid: string,
   assignedTaskIds: number[],
   preferredTaskIds: number[],
   nodeTaskIds: HomepageMultiPingNodeTaskIds,
 ): number[] {
-  const ordered = orderHomepagePingTaskIds(assignedTaskIds, preferredTaskIds);
+  const preferred = normalizeHomepageMultiPingTaskIds(preferredTaskIds);
+  if (preferred.length === 0) return [];
   const override = normalizeHomepageMultiPingTaskIds(nodeTaskIds[uuid]);
-  if (override.length === 0) return ordered;
-  const assigned = new Set(ordered);
+  if (override.length === 0) return preferred;
+  const assigned = new Set(normalizeHomepageMultiPingTaskIds(assignedTaskIds));
   return override.filter((taskId) => assigned.has(taskId));
 }
 

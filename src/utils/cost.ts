@@ -141,9 +141,14 @@ function parseAcquiredTimestamp(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+// 接受晚至查看者本地「今天 + 2 天」的收购日期：一个在东八区填了「今天」的日期，
+// 被 UTC 以西的设备重新归一化再保存时,若按本地今天严格截断就会被永久删掉。
+const ACQUIRED_AT_TIMEZONE_SLACK_MS = 2 * 24 * 60 * 60 * 1000;
+
 function normalizeAcquiredAt(value: unknown) {
   const raw = typeof value === "string" ? value.trim() : "";
-  return parseLocalDateKey(raw) != null && raw <= localDateKey() ? raw : undefined;
+  const latest = localDateKey(new Date(Date.now() + ACQUIRED_AT_TIMEZONE_SLACK_MS));
+  return parseLocalDateKey(raw) != null && raw <= latest ? raw : undefined;
 }
 
 // 以节点 uuid 为 key。旧版纯数字自动升格为 { amount };非法日期/收购价只丢字段不丢条目;

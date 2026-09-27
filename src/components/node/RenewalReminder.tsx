@@ -2,13 +2,13 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { CircleDollarSign, X } from "lucide-react";
 import {
+  DEFAULT_RENEWAL_REMINDER_DAYS,
   EMPTY_RENEWAL_REMINDER_PREFERENCES,
   formatRenewalReminderExpiry,
   getRenewalReminders,
   getVisibleRenewalReminders,
   RENEWAL_SNOOZE_DAYS,
   RENEWAL_SNOOZE_MS,
-  RENEWAL_WARNING_DAYS,
   type RenewalReminderPreferences,
   type RenewalReminderSource,
 } from "@/utils/renewalReminder";
@@ -60,7 +60,14 @@ function AssetLink() {
   );
 }
 
-export function RenewalReminder({ nodes }: { nodes: RenewalReminderSource[] }) {
+export function RenewalReminder({
+  nodes,
+  warningDays = DEFAULT_RENEWAL_REMINDER_DAYS,
+}: {
+  nodes: RenewalReminderSource[];
+  /** 提前几天开始提醒；0 = 完全不显示提醒入口。 */
+  warningDays?: number;
+}) {
   const [open, setOpen] = useState(false);
   const [clock, setClock] = useState(() => Date.now());
   const [preferences, setPreferences] = useState(readPreferences);
@@ -70,8 +77,8 @@ export function RenewalReminder({ nodes }: { nodes: RenewalReminderSource[] }) {
   const panelId = useId();
   const titleId = useId();
   const reminders = useMemo(
-    () => getRenewalReminders(nodes, clock, { requireOnlineForExpired: true }),
-    [clock, nodes],
+    () => getRenewalReminders(nodes, clock, { requireOnlineForExpired: true, warningDays }),
+    [clock, nodes, warningDays],
   );
   const visibleReminders = useMemo(
     () => getVisibleRenewalReminders(reminders, preferences, clock),
@@ -191,7 +198,7 @@ export function RenewalReminder({ nodes }: { nodes: RenewalReminderSource[] }) {
                 <h2 id={titleId}>续费提醒</h2>
                 <span className="renewal-reminder-count">{visibleReminders.length}</span>
               </div>
-              <p>{visibleReminders.length} 台节点将在 {RENEWAL_WARNING_DAYS} 天内到期</p>
+              <p>{visibleReminders.length} 台节点将在 {warningDays} 天内到期</p>
             </div>
             <button
               ref={closeRef}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createHomepageMultiPingTaskOverride,
+  isHomepageMultiPingConfigured,
   normalizeHomepageMultiPingNodeTaskIds,
   normalizeHomepageMultiPingTaskIds,
   orderHomepagePingTaskIds,
@@ -83,13 +84,30 @@ describe("homepage ping task bindings", () => {
     expect(createHomepageMultiPingTaskOverride(undefined, [1, 2, 3], [])).toBeNull();
   });
 
-  it("shows every backend task by default and applies optional order or per-node hiding", () => {
+  it("keeps the priority-order helper for the per-node config panel", () => {
     expect(orderHomepagePingTaskIds([1, 2, 3, 4], [3, 1])).toEqual([3, 1, 2, 4]);
+    expect(createHomepageMultiPingTaskOverride(undefined, [3, 1], [1, 2, 3, 4])).toEqual([3, 1, 2, 4]);
+  });
+
+  it("treats the global selection as the exact lines every node shows", () => {
+    // 全局选了 3/1：所有节点只显示这两条，未分配的线路由卡片渲染「未分配」占位行。
     expect(resolveVisibleHomepagePingTaskIds("node-a", [1, 2, 3, 4], [3, 1], {}))
-      .toEqual([3, 1, 2, 4]);
+      .toEqual([3, 1]);
+    // 按服务器单独配置仍然优先，且限定在后台分配范围内。
     expect(resolveVisibleHomepagePingTaskIds("node-a", [1, 2, 3, 4], [3, 1], {
       "node-a": [4, 2, 99],
     })).toEqual([4, 2]);
+  });
+
+  it("falls back to single-line mode when nothing is selected", () => {
+    expect(resolveVisibleHomepagePingTaskIds("node-a", [1, 2], [], {})).toEqual([]);
+    expect(isHomepageMultiPingConfigured([])).toBe(false);
+    expect(isHomepageMultiPingConfigured([7])).toBe(true);
+  });
+
+  it("caps the global selection at the 8-slot limit", () => {
+    expect(normalizeHomepageMultiPingTaskIds([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]))
+      .toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
 });
