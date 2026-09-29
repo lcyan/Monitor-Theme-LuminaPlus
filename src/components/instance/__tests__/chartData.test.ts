@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendLiveChartPoint,
   cutPeakValues,
   downsampleAligned,
   downsampleWeightedAligned,
   fillMissingMetricPoints,
   insertMetricGapSentinels,
+  mergeHistoryWithLivePoints,
+  resampleLiveTail,
   type TimedMetricPoint,
 } from "@/components/instance/chartData";
 
@@ -286,5 +289,100 @@ describe("downsampleWeightedAligned", () => {
 
     expect(out.perTask[0][0]).toBeNull();
     expect(out.perTask[0][1]).toBeUndefined();
+  });
+});
+
+describe("历史图接实时样本", () => {
+  const point = (time: number, v: number): TimedMetricPoint => ({ time, v });
+
+  it("同一秒的重复样本不重复记", () => {
+    const first = appendLiveChartPoint([point(100, 1)], point(100.4, 2));
+    expect(first).toHaveLength(1);
+    expect(first[0]!.v).toBe(1);
+  });
+
+  it("实时档超上限砍最老的", () => {
+    let points: TimedMetricPoint[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      points = appendLiveChartPoint(points, point(i * 2, i), { dense: true, limit: 5 });
+    }
+    expect(points).toHaveLength(5);
+    expect(points[0]!.time).toBe(14);
+  });
+
+  it("历史档超上限时抽稀老的那截，不在历史末尾留缝", () => {
+    // 2 秒一帧连看两小时（3600 条，远超上限）：抽稀之后最老的一条还在原地，
+    // 历史末尾和实时段之间不会被砍出一道缝。
+    let points: TimedMetricPoint[] = [];
+    for (let i = 0; i < 3600; i += 1) {
+      points = appendLiveChartPoint(points, point(i * 2, i));
+    }
+    expect(points.length).toBeLessThanOrEqual(900);
+    expect(points[0]!.time).toBe(0);
+    expect(points[points.length - 1]!.time).toBe(7198);
+    // 最近 5 分钟保持原密度，更早的按 30 秒一条。
+    const newest = points[points.length - 1]!.time;
+    const recent = points.filter((item) => item.time >= newest - 300);
+    expect(recent.length).toBeGreaterThan(140);
+  });
+
+  it("只接历史末尾之后的实时样本", () => {
+    const history = [point(0, 1), point(30, 2), point(60, 3)];
+    const live = [point(40, 9), point(60, 9), point(62, 4), point(64, 5)];
+    const merged = mergeHistoryWithLivePoints(history, live);
+    expect(merged.map((item) => item.time)).toEqual([0, 30, 60, 62, 64]);
+    // 历史覆盖到的时刻仍用历史的值。
+    expect(merged[2]!.v).toBe(3);
+  });
+
+  it("没有实时样本时原样返回历史", () => {
+    const history = [point(0, 1)];
+    expect(mergeHistoryWithLivePoints(history, [])).toBe(history);
+  });
+});
+
+describe("resampleLiveTail（历史档接实时样本按历史点距并格）", () => {
+  // 历史 60 秒一行（站长站点 1 小时档实测），实时样本 2 秒一个。
+  const history = Array.from({ length: 10 }, (_, index) => ({ time: 1_000 + index * 60, cpu: 1 }));
+  const lastHistory = history[history.length - 1]!.time;
+  const liveEvery2s = (seconds: number, cpu: (index: number) => number) =>
+    Array.from({ length: seconds / 2 }, (_, index) => ({ time: lastHistory + 2 + index * 2, cpu: cpu(index) }));
+
+  it("5 分钟的实时样本并成约 5 个点，最后一个落在最新样本的时刻", () => {
+    const live = liveEvery2s(300, () => 2);
+    const tail = resampleLiveTail(history, live, ["cpu"]);
+
+    expect(tail.length).toBeGreaterThanOrEqual(5);
+    expect(tail.length).toBeLessThanOrEqual(6);
+    expect(tail[tail.length - 1]!.time).toBe(live[live.length - 1]!.time);
+    for (let index = 1; index < tail.length; index += 1) {
+      expect(tail[index]!.time).toBeGreaterThan(tail[index - 1]!.time);
+    }
+    expect(tail.every((point) => point.cpu === 2)).toBe(true);
+  });
+
+  it("格子里有尖峰就留峰值，平稳就取均值", () => {
+    const live = liveEvery2s(120, (index) => (index === 5 ? 90 : index < 29 ? 1 : 3));
+    const [first, second] = resampleLiveTail(history, live, ["cpu"]);
+
+    expect(first!.cpu).toBe(90);
+    expect(second!.cpu).toBeCloseTo(3);
+  });
+
+  it("历史末尾之前的实时样本丢掉，只剩一个就原样返回", () => {
+    const live = [
+      { time: lastHistory - 10, cpu: 50 },
+      { time: lastHistory + 2, cpu: 4 },
+    ];
+    expect(resampleLiveTail(history, live, ["cpu"])).toEqual([{ time: lastHistory + 2, cpu: 4 }]);
+  });
+
+  it("全是 null 的指标（比如没有 Swap）并完还是 null", () => {
+    const live = liveEvery2s(60, () => 1).map((point) => ({ ...point, swap: null as number | null }));
+    const tail = resampleLiveTail<{ time: number; cpu: number; swap?: number | null }>(history, live, [
+      "cpu",
+      "swap",
+    ]);
+    expect(tail.every((point) => point.swap === null)).toBe(true);
   });
 });

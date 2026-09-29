@@ -1,4 +1,4 @@
-import { memo, useState, type CSSProperties, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowDown,
@@ -18,6 +18,8 @@ import { IpStackBadges } from "./IpStackBadges";
 import { NodeTodayTrafficPopover } from "./NodeTodayTrafficPopover";
 import { HealthBucketTooltip } from "./HealthBucketTooltip";
 import { SimulatedPingBadge } from "./SimulatedPingBadge";
+import { MetricDetailTip, useMetricDetailTip } from "./MetricDetailTip";
+import { resolveTouchBucketIndex, TOUCH_BUCKET_HOLD_MS } from "./touchBucketPick";
 import { useNodeCardModel } from "@/hooks/useNodeCardModel";
 import { speedRateColor } from "@/utils/metricTone";
 import { supportsFineHover } from "@/utils/mediaQuery";
@@ -113,6 +115,7 @@ function MiniMetricBar({
   label,
   valueText,
   unit,
+  detail,
   fraction,
   paint,
 }: {
@@ -120,6 +123,8 @@ function MiniMetricBar({
   label: string;
   valueText: string;
   unit?: string;
+  /** 悬停 / 点一下弹出的具体数值（已用 / 总量、核数、1/5/15 分钟负载）。 */
+  detail: string;
   fraction: number;
   paint: string;
 }) {
@@ -130,14 +135,21 @@ function MiniMetricBar({
     "--mini-metric-color": paint,
   };
 
+  const tip = useMetricDetailTip();
+
   return (
-    <div className="metric-item">
+    <div
+      className="metric-item"
+      data-tip-open={tip.open ? "true" : undefined}
+      {...tip.handlers}
+    >
+      {tip.open && <MetricDetailTip text={detail} />}
       <div className="mini-metric-head">
         <span className="mini-metric-label">
           {icon}
           {label}
         </span>
-        <span className="mini-metric-value tabular" title={`${label} ${fullValue}`}>
+        <span className="mini-metric-value tabular" aria-label={`${label} ${fullValue}`}>
           <strong>{valueText}</strong>
           {unit && <small>{unit}</small>}
         </span>
@@ -161,6 +173,7 @@ function MiniVitals({
         label="CPU"
         valueText={node.cpuPct.toFixed(node.cpuPct >= 10 ? 0 : 1)}
         unit="%"
+        detail={`${node.cpuPct.toFixed(2)}% · ${node.cpu_cores || 0} 核`}
         fraction={node.cpuPct / 100}
         paint="var(--progress-cpu)"
       />
@@ -169,6 +182,7 @@ function MiniVitals({
         label="内存"
         valueText={node.ramPct.toFixed(node.ramPct >= 10 ? 0 : 1)}
         unit="%"
+        detail={`${formatBytes(node.ramUsed)} / ${formatBytes(node.ramTotal)}`}
         fraction={node.ramPct / 100}
         paint="var(--progress-memory)"
       />
@@ -177,6 +191,7 @@ function MiniVitals({
         label="磁盘"
         valueText={node.diskPct.toFixed(node.diskPct >= 10 ? 0 : 1)}
         unit="%"
+        detail={`${formatBytes(node.diskUsed)} / ${formatBytes(node.diskTotal)}`}
         fraction={node.diskPct / 100}
         paint="var(--progress-disk)"
       />
@@ -184,6 +199,7 @@ function MiniVitals({
         icon={<Gauge size={12} strokeWidth={2} />}
         label="负载"
         valueText={node.load1.toFixed(2)}
+        detail={`${node.load1.toFixed(2)} / ${node.load5.toFixed(2)} / ${node.load15.toFixed(2)}`}
         fraction={loadFraction}
         paint="var(--progress-load)"
       />
@@ -273,8 +289,29 @@ function MiniHealthBars({
 }) {
   const width = Math.max(1, buckets.length * 4 - 1);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const touchHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoveredBucket = hoveredIndex == null ? null : (buckets[hoveredIndex] ?? null);
   const tooltip = hoveredBucket ? formatHealthBucketTooltip(hoveredBucket, kind) : null;
+
+  useEffect(
+    () => () => {
+      if (touchHoldTimerRef.current != null) clearTimeout(touchHoldTimerRef.current);
+    },
+    [],
+  );
+
+  const pickIndex = (clientX: number, rect: DOMRect) =>
+    setHoveredIndex(resolveTouchBucketIndex(clientX, rect, buckets.length));
+
+  /** 触屏：按下就选中，抬手后再留一会儿（口径见 `touchBucketPick`）。 */
+  const handleTouchPick = (clientX: number, rect: DOMRect) => {
+    pickIndex(clientX, rect);
+    if (touchHoldTimerRef.current != null) clearTimeout(touchHoldTimerRef.current);
+    touchHoldTimerRef.current = setTimeout(() => {
+      touchHoldTimerRef.current = null;
+      setHoveredIndex(null);
+    }, TOUCH_BUCKET_HOLD_MS);
+  };
 
   return (
     <div className="mini-health-chart-wrap">
@@ -283,17 +320,25 @@ function MiniHealthBars({
         viewBox={`0 0 ${width} 16`}
         preserveAspectRatio="none"
         aria-hidden
+        onPointerDown={(event) => {
+          if (supportsFineHover(event.pointerType)) return;
+          handleTouchPick(event.clientX, event.currentTarget.getBoundingClientRect());
+        }}
         onPointerMove={(event) => {
           if (!supportsFineHover(event.pointerType)) {
-            setHoveredIndex(null);
+            // 手指按着才跟随；触屏没有悬停，抬着手划过来不该动它。
+            if (event.buttons !== 0) {
+              handleTouchPick(event.clientX, event.currentTarget.getBoundingClientRect());
+            }
             return;
           }
-          const rect = event.currentTarget.getBoundingClientRect();
-          if (rect.width <= 0 || buckets.length === 0) return;
-          const ratio = (event.clientX - rect.left) / rect.width;
-          setHoveredIndex(Math.max(0, Math.min(buckets.length - 1, Math.floor(ratio * buckets.length))));
+          pickIndex(event.clientX, event.currentTarget.getBoundingClientRect());
         }}
-        onPointerLeave={() => setHoveredIndex(null)}
+        onPointerLeave={() => {
+          // 触屏那份有自己的收尾计时，别被这里抢先清掉。
+          if (touchHoldTimerRef.current != null) return;
+          setHoveredIndex(null);
+        }}
       >
         {buckets.map((bucket, index) => {
           const slot = healthBarSlotModel(bucket, kind);

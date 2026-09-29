@@ -570,3 +570,142 @@ export function smoothByCount(
     return out;
   });
 }
+
+/* ------------------------------------------------------------------ *
+ * 历史图接实时样本
+ * ------------------------------------------------------------------ */
+
+/** 实时样本缓冲区的上限条数。 */
+export const LIVE_TAIL_MAX_POINTS = 900;
+/** 抽稀时最近这段保持原密度（WS 一台节点约 2 秒一帧）。 */
+const LIVE_TAIL_DENSE_SECONDS = 300;
+/** 更老的那截按历史行的密度抽稀（历史约 30 秒一行）。 */
+const LIVE_TAIL_THIN_SECONDS = 30;
+
+/**
+ * 把一条实时样本接到缓冲区末尾。
+ *
+ * 同一秒内的重复样本直接丢（WS 偶尔补发同一个时间戳）。超过上限后两种档位取舍不同：
+ * - `dense`（详情页「实时」档）：只看最近一段，砍掉最老的就行。
+ * - 历史档（实时样本接在历史后面）：**不能砍最老的** —— 历史的末尾和实时段之间会留一道
+ *   越来越宽的缝，页面开得越久缝越宽。改成把较老的那截按历史行的密度抽稀，
+ *   抽完还超上限才砍最老的（30 秒一条、900 条 ≈ 7 小时）。
+ */
+export function appendLiveChartPoint<T extends TimedMetricPoint>(
+  points: readonly T[],
+  point: T,
+  options: { dense?: boolean; limit?: number } = {},
+): T[] {
+  const limit = options.limit ?? LIVE_TAIL_MAX_POINTS;
+  const last = points[points.length - 1];
+  if (last && Math.abs(last.time - point.time) < 1) return points as T[];
+
+  const next = [...points, point];
+  if (next.length <= limit) return next;
+  if (options.dense) return next.slice(-limit);
+
+  const newest = next[next.length - 1]!.time;
+  const denseFrom = newest - LIVE_TAIL_DENSE_SECONDS;
+  const thinned: T[] = [];
+  for (const candidate of next) {
+    if (candidate.time >= denseFrom) {
+      thinned.push(candidate);
+      continue;
+    }
+    const kept = thinned[thinned.length - 1];
+    if (!kept || candidate.time - kept.time >= LIVE_TAIL_THIN_SECONDS) thinned.push(candidate);
+  }
+  return thinned.length > limit ? thinned.slice(-limit) : thinned;
+}
+
+/** 历史太少、量不出点距时，按历史行的常见密度并格。 */
+const LIVE_TAIL_FALLBACK_STEP_SECONDS = 60;
+
+/** 历史的点距（秒）：相邻两点间隔的中位数，量不出来就用兜底值。 */
+function resolveHistoryStepSeconds(history: readonly TimedMetricPoint[]): number {
+  const gaps: number[] = [];
+  for (let index = Math.max(1, history.length - 60); index < history.length; index += 1) {
+    const gap = history[index]!.time - history[index - 1]!.time;
+    if (gap > 0) gaps.push(gap);
+  }
+  if (gaps.length === 0) return LIVE_TAIL_FALLBACK_STEP_SECONDS;
+  gaps.sort((left, right) => left - right);
+  return Math.max(1, gaps[Math.floor(gaps.length / 2)]!);
+}
+
+/** 一格里的几个值并成一个：和历史降采样同一套保峰口径（见 downsampleAligned 的 preservePeaks）。 */
+function aggregateBucketValue(values: readonly (number | null | undefined)[]): number | null | undefined {
+  const numbers = values.filter(
+    (value): value is number => typeof value === "number" && Number.isFinite(value),
+  );
+  if (numbers.length === 0) return values.some((value) => value === null) ? null : undefined;
+  const mean = numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
+  const max = Math.max(...numbers);
+  const min = Math.min(...numbers);
+  const upDev = max - mean;
+  const downDev = mean - min;
+  const extreme = upDev >= downDev ? max : min;
+  return mean > 0 && Math.max(upDev, downDev) > mean * PEAK_PRESERVE_SPIKE_RATIO ? extreme : mean;
+}
+
+/**
+ * 历史档：接在历史后面的实时样本按历史的点距并成一格一个点。
+ *
+ * 实时样本 2 秒一个，历史却是一行几十秒（站长站点 1 小时档实测 60 秒一行）。原样接上去，
+ * 页面开着的这几分钟在横轴上挤成一团锯齿（站长 2026-09-27 截图）。按历史的中位点距分格，
+ * 平稳时取均值、有尖峰就留峰值（测速尖峰照样画出来，这是接实时样本的初衷）。
+ * 最后那格还没满：点落在最新样本的时刻，随新样本更新，右端照旧跟着往前长。
+ */
+export function resampleLiveTail<T extends TimedMetricPoint>(
+  history: readonly T[],
+  live: readonly T[],
+  keys: readonly string[],
+): T[] {
+  const lastHistoryTime = history[history.length - 1]?.time;
+  const tail = live.filter((point) => lastHistoryTime == null || point.time > lastHistoryTime);
+  if (tail.length <= 1) return tail;
+
+  const step = resolveHistoryStepSeconds(history);
+  const anchor = lastHistoryTime ?? tail[0]!.time;
+  const buckets: T[][] = [];
+  let currentIndex = Number.NaN;
+  for (const point of tail) {
+    const index = Math.floor((point.time - anchor) / step);
+    if (index !== currentIndex) {
+      buckets.push([]);
+      currentIndex = index;
+    }
+    buckets[buckets.length - 1]!.push(point);
+  }
+
+  return buckets.map((bucket, bucketIndex) => {
+    if (bucket.length === 1) return bucket[0]!;
+    const isLast = bucketIndex === buckets.length - 1;
+    const time = isLast
+      ? bucket[bucket.length - 1]!.time
+      : bucket.reduce((sum, point) => sum + point.time, 0) / bucket.length;
+    const merged: Record<string, unknown> = { ...bucket[bucket.length - 1]!, time };
+    for (const key of keys) {
+      merged[key] = aggregateBucketValue(
+        bucket.map((point) => (point as Record<string, unknown>)[key] as number | null | undefined),
+      );
+    }
+    return merged as T;
+  });
+}
+
+/**
+ * 历史图接实时样本：只接历史末尾之后的那些。
+ *
+ * 历史那段仍以历史为准（后端的行是真采样，实时样本是推送的瞬时值，两者重叠时以历史为准，
+ * 免得同一时刻画出两个点）。
+ */
+export function mergeHistoryWithLivePoints<T extends TimedMetricPoint>(
+  history: readonly T[],
+  live: readonly T[],
+): T[] {
+  if (live.length === 0) return history as T[];
+  const lastHistoryTime = history[history.length - 1]?.time ?? Number.NEGATIVE_INFINITY;
+  const tail = live.filter((point) => point.time > lastHistoryTime);
+  return tail.length === 0 ? (history as T[]) : [...history, ...tail];
+}

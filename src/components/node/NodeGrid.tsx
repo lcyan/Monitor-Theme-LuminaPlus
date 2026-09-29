@@ -555,10 +555,10 @@ export function NodeGrid() {
         : visibleNodes.filter((node) => getHomeGroupLabel(node.group) === selectedGroup),
     [visibleNodes, selectedGroup],
   );
-  // 地区选项在分组筛选之后统计,让国旗计数反映当前分组内的分布。
+  // 地区选项在分组筛选之后统计,让国旗计数反映当前分组内的分布;顺序按站长设置的 homeRegionOrder。
   const regionOptions = useMemo(
-    () => getHomeRegionOptions(groupFilteredNodes),
-    [groupFilteredNodes],
+    () => getHomeRegionOptions(groupFilteredNodes, themeSettings.homeRegionOrder),
+    [groupFilteredNodes, themeSettings.homeRegionOrder],
   );
   const filteredNodes = useMemo(
     () =>

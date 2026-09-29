@@ -1,5 +1,6 @@
 import {
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -26,9 +27,12 @@ import {
 } from "./chartShared";
 import { ChartTooltip, SwitchToggle } from "./ChartParts";
 import {
+  appendLiveChartPoint,
   downsampleAligned,
   fillMissingMetricPoints,
   interpolateMetricGaps,
+  mergeHistoryWithLivePoints,
+  resampleLiveTail,
 } from "./chartData";
 import { formatBytes, formatTrafficRateLabel } from "@/utils/format";
 import { historyChartRangeSeconds, historyCoverageLabel } from "@/utils/historyRange";
@@ -40,6 +44,20 @@ const LOAD_HISTORY_SAMPLE_LIMIT = 360;
 const LOAD_HISTORY_RENDER_LIMIT = 720;
 const REALTIME_HISTORY_SEED_LIMIT = 120;
 const REALTIME_SAMPLE_LIMIT = 600;
+/**
+ * 「实时」档最多显示这么长的一段。按**时间**卡而不是只按条数：探针 60 秒才报一次时，
+ * 600 条就是 10 小时，那又变回「长区间」了。
+ */
+const REALTIME_WINDOW_SECONDS = 15 * 60;
+/**
+ * 回到前台、且离开超过这么久就把历史重拉一次。
+ *
+ * 页面在后台时浏览器会节流定时器、实时推送也可能断流，这段时间的数据只在后端的历史里，
+ * 不补就是图上一个洞 —— 切到后台去跑测速，回来后那一段峰值就不在图上了。
+ */
+const RESUME_REFETCH_HIDDEN_MS = 30_000;
+/** 兜底：在前台但这么久没收到实时样本（WS 掉了、实时连接到时限），同样重拉一次补上。 */
+const STALE_TAIL_REFETCH_MS = 5 * 60_000;
 
 const CPU_KEYS = ["cpu"];
 const CPU_COLORS = [CHART_PALETTE.cpu];
@@ -184,7 +202,7 @@ function buildBaseOptions({
   spanGaps,
   axisKind,
   axisSize = 52,
-  xRange,
+  getXRange,
 }: {
   title: string;
   keys: string[];
@@ -194,7 +212,11 @@ function buildBaseOptions({
   spanGaps?: boolean;
   axisKind: "percent" | "network" | "count";
   axisSize?: number;
-  xRange?: [number, number] | null;
+  /**
+   * 历史档钉住的横轴区间，传取值函数而不是区间本身：实时样本每接上一个，区间右端就往后推一次，
+   * 区间要是进了 options，uplot-react 比出 options 变了就把整张图销毁重建（每一两秒六张图全部重画）。
+   */
+  getXRange?: (() => [number, number] | null) | null;
 }): Omit<uPlot.Options, "width" | "height"> {
   const isDark = resolvedAppearance === "dark";
   const { grid, text } = getAxisColors(isDark);
@@ -204,7 +226,9 @@ function buildBaseOptions({
     cursor: { drag: { x: true, y: false } },
     legend: { show: false },
     scales: {
-      x: xRange ? { time: true, auto: false, range: () => xRange } : { time: true },
+      x: getXRange
+        ? { time: true, auto: false, range: (_self, min, max) => getXRange() ?? [min, max] }
+        : { time: true },
       y: { auto: true },
     },
     axes: [
@@ -300,6 +324,14 @@ const ChartCard = memo(function ChartCard({
   useLayoutEffect(() => {
     dataRef.current = data;
   }, [data]);
+  // 区间放 ref 里，options 只跟「有没有钉区间」走；uplot-react 的 setData 在子组件的 effect 里，
+  // 晚于这里的 layout effect，重算横轴时读到的已经是新区间。
+  const xRangeRef = useRef(xRange ?? null);
+  useLayoutEffect(() => {
+    xRangeRef.current = xRange ?? null;
+  }, [xRange]);
+  const hasXRange = xRange != null;
+  const readXRange = useCallback(() => xRangeRef.current, []);
   const baseOptions = useMemo(
     () =>
       buildBaseOptions({
@@ -311,9 +343,20 @@ const ChartCard = memo(function ChartCard({
         spanGaps,
         axisKind,
         axisSize,
-        xRange,
+        getXRange: hasXRange ? readXRange : null,
       }),
-    [axisKind, axisSize, colors, keys, rangeHours, resolvedAppearance, spanGaps, title, xRange],
+    [
+      axisKind,
+      axisSize,
+      colors,
+      hasXRange,
+      keys,
+      rangeHours,
+      readXRange,
+      resolvedAppearance,
+      spanGaps,
+      title,
+    ],
   );
 
   const enhancedOptions = useMemo<Omit<uPlot.Options, "width" | "height">>(() => {
@@ -365,12 +408,9 @@ const ChartCard = memo(function ChartCard({
         </div>
       </header>
       <div ref={chartSizeRef} className="instance-uplot-wrap">
-        <UplotReact
-          key={`${uuid}-${rangeHours}`}
-          options={chartOptions}
-          data={data}
-          resetScales={rangeHours === 0}
-        />
+        {/* 每档都要重算坐标轴：历史档的横轴右端跟着实时样本走、纵轴要装得下新样本。
+            历史档横轴本来就钉在区间上（拖选缩放不生效），重算不会丢掉什么。 */}
+        <UplotReact key={`${uuid}-${rangeHours}`} options={chartOptions} data={data} />
         <ChartTooltip tooltip={tooltip} />
       </div>
     </div>
@@ -393,10 +433,14 @@ export function LoadChart({
     active,
   );
   const isRealtime = hours === 0;
-  const node = useNodeMetrics(uuid, isRealtime && active);
+  // 历史档也要实时值：历史只有打开时那一份，不接实时样本的话，页面开着的这段时间里
+  // 发生的事（比如跑一次测速）在图上根本不会出现（内置主题就是接着画的）。
+  const node = useNodeMetrics(uuid, active);
   const meta = useNodeMeta(uuid);
   const { resolvedAppearance } = usePreferences();
   const [realtimePoints, setRealtimePoints] = useState<ChartPoint[]>([]);
+  /** 上一条实时样本的到达时刻，用来发现「断了一段」。 */
+  const lastSampleAtRef = useRef(0);
   const [connectNulls, setConnectNulls] = useState(false);
   const totalFallbacks = useMemo(
     () => ({
@@ -408,17 +452,42 @@ export function LoadChart({
   );
 
   useEffect(() => {
-    if (!active || !isRealtime || !node) return;
+    if (!active || !node) return;
+    const now = Date.now();
+    const sinceLast = lastSampleAtRef.current > 0 ? now - lastSampleAtRef.current : 0;
+    lastSampleAtRef.current = now;
+    // 断了很久才又收到样本：中间那段只有后端的历史里有，重拉一次把洞补上。
+    if (sinceLast >= STALE_TAIL_REFETCH_MS) void refetch();
     const point = pointFromNode(node);
-    setRealtimePoints((prev) => {
-      const last = prev[prev.length - 1];
-      if (last && Math.abs(last.time - point.time) < 1) return prev;
-      return [...prev, point].slice(-REALTIME_SAMPLE_LIMIT);
-    });
-  }, [active, isRealtime, node]);
+    // 实时档只看最近一段，超上限砍最老的；历史档要一直接到历史末尾，超上限改为抽稀（见 appendLiveChartPoint）。
+    setRealtimePoints((prev) =>
+      appendLiveChartPoint(prev, point, {
+        dense: isRealtime,
+        limit: isRealtime ? REALTIME_SAMPLE_LIMIT : undefined,
+      }),
+    );
+  }, [active, isRealtime, node, refetch]);
+
+  // 回到前台补历史：后台那段时间实时推送是断的，只靠实时样本接不回来。
+  useEffect(() => {
+    if (!active) return;
+    let hiddenSince = document.hidden ? Date.now() : 0;
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        hiddenSince = Date.now();
+        return;
+      }
+      const awayMs = hiddenSince > 0 ? Date.now() - hiddenSince : 0;
+      hiddenSince = 0;
+      if (awayMs >= RESUME_REFETCH_HIDDEN_MS) void refetch();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [active, refetch]);
 
   useEffect(() => {
     setRealtimePoints([]);
+    lastSampleAtRef.current = 0;
   }, [hours, uuid]);
 
   const historyRecords = useMemo<Array<{ record: LoadRecord; time: number }>>(
@@ -458,15 +527,22 @@ export function LoadChart({
 
   const points = useMemo<ChartPoint[]>(() => {
     if (isRealtime) {
-      const initial = historyPoints.slice(-REALTIME_HISTORY_SEED_LIMIT);
-      const merged = [...initial, ...realtimePoints].sort((a, b) => a.time - b.time);
-      const deduped = merged.filter((point, index, arr) => {
-        const next = arr[index + 1];
-        return !next || Math.abs(next.time - point.time) >= 1;
-      });
-      return deduped.slice(-REALTIME_SAMPLE_LIMIT);
+      const seeded = mergeHistoryWithLivePoints(
+        historyPoints.slice(-REALTIME_HISTORY_SEED_LIMIT),
+        realtimePoints,
+      );
+      const newest = seeded[seeded.length - 1]?.time;
+      const windowed =
+        newest == null
+          ? seeded
+          : seeded.filter((point) => point.time >= newest - REALTIME_WINDOW_SECONDS);
+      return windowed.slice(-REALTIME_SAMPLE_LIMIT);
     }
-    return historyPoints;
+    // 历史档：历史那段以历史为准，实时样本只接在它后面，并按历史的点距并格（不然挤成一团）。
+    return mergeHistoryWithLivePoints(
+      historyPoints,
+      resampleLiveTail(historyPoints, realtimePoints, LOAD_INTERPOLATE_KEYS),
+    );
   }, [historyPoints, isRealtime, realtimePoints]);
 
   const rangeSummary = formatRangeSummary(hours);
@@ -486,10 +562,16 @@ export function LoadChart({
   const coverageSummary = points.length
     ? `${formatChartCoverageTime(points[0].time)} - ${formatChartCoverageTime(points[points.length - 1].time)}`
     : "—";
-  const requestedXRange = useMemo(
-    () => (isRealtime ? null : historyChartRangeSeconds(data)),
-    [data, isRealtime],
-  );
+  const lastPointTime = points[points.length - 1]?.time;
+  const requestedXRange = useMemo(() => {
+    if (isRealtime) return null;
+    const range = historyChartRangeSeconds(data);
+    // 后端给的区间截止到取数那一刻；实时样本接上来之后要把右端跟着推，否则新的点画在坐标轴外面。
+    if (!range) return null;
+    return lastPointTime != null && lastPointTime > range[1]
+      ? ([range[0], lastPointTime] as [number, number])
+      : range;
+  }, [data, isRealtime, lastPointTime]);
   const coverageLabel = useMemo(
     () =>
       isRealtime

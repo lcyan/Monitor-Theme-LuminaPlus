@@ -165,6 +165,7 @@ export const NodeCard = memo(function NodeCard({
           {/* 多线路开着但一条线路都没配出来时回退单线路,不留空白（CFSM 同口径）。 */}
           {multiPingActive && homepagePingLines.length > 0 ? (
             <MultiPingStatus
+              uuid={uuid}
               lines={homepagePingLines}
               density="large"
               className="card-metric-section"

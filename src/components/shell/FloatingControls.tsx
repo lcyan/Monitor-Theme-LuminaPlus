@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { AlertTriangle, ChevronLeft, ChevronRight, Grid3x3, LayoutGrid, List, Monitor, Palette, Rows3, Settings, SlidersHorizontal, Sun, Moon } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, Grid3x3, LayoutGrid, List, Monitor, Palette, RefreshCw, Rows3, Settings, SlidersHorizontal, Sun, Moon } from "lucide-react";
 import { Link } from "react-router-dom";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useViewMode } from "@/hooks/useViewMode";
 import { useNodeStoreStatus } from "@/hooks/useNode";
+import { refreshHomepagePingOverview } from "@/hooks/usePingOverview";
 import { useAuth } from "@/hooks/useAuth";
 import { useThemeSettings } from "@/hooks/useThemeSettings";
 import {
@@ -42,6 +43,7 @@ export function FloatingControls({
   const themeSettings = useThemeSettings();
   const { failureStreak } = useNodeStoreStatus();
   const [collapsed, setCollapsed] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [colorsOpen, setColorsOpen] = useState(false);
   const [colorsMounted, setColorsMounted] = useState(false);
   const settingsReady = themeSettings.isReady;
@@ -119,6 +121,21 @@ export function FloatingControls({
                   )}
                 >
                   <ViewIcon size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (refreshing) return;
+                    setRefreshing(true);
+                    void refreshHomepagePingOverview().finally(() => setRefreshing(false));
+                  }}
+                  aria-label="刷新延迟数据"
+                  aria-busy={refreshing}
+                  title="刷新延迟数据"
+                  tabIndex={hiddenTabIndex}
+                  className="control-button grid h-9 w-9 place-items-center"
+                >
+                  <RefreshCw size={16} className={refreshing ? "animate-spin" : undefined} />
                 </button>
                 {showColorPicker && (
                   <button

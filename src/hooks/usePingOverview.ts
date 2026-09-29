@@ -17,6 +17,8 @@ import type {
   PingTaskStats,
 } from "@/types/models";
 import { withTimeoutSignal } from "@/utils/abort";
+import { getPingLineOverrides, subscribePingLineOverrides } from "@/services/pingLineOverrideStore";
+import type { PingLineOverrides } from "@/utils/pingLineOverrides";
 import { resolvePingSampleCounts } from "@/utils/pingMetrics";
 import {
   invertHomepagePingTaskBindings,
@@ -227,7 +229,11 @@ function buildAssignmentKey(selectedTaskIdsByClient: Map<string, number[]>) {
     .join("|");
 }
 
-function resolvePingAssignmentKey(clientUuids: string[], bindings: HomepagePingTaskBindings) {
+function resolvePingAssignmentKey(
+  clientUuids: string[],
+  bindings: HomepagePingTaskBindings,
+  defaultTaskId = 0,
+) {
   const normalizedUuids = normalizeVisibleUuids(clientUuids);
   if (normalizedUuids.length === 0) return "";
   const preferred = invertHomepagePingTaskBindings(bindings);
@@ -237,7 +243,8 @@ function resolvePingAssignmentKey(clientUuids: string[], bindings: HomepagePingT
       return taskId == null ? [] : [[uuid, [taskId]] as [string, number[]]];
     }),
   );
-  return `backend:${normalizedUuids.join("|")}|preferred:${buildAssignmentKey(singlePreferences)}`;
+  // 默认线路参与键：改设置后单线路选择要重算（缓存也按新键读）。
+  return `backend:${normalizedUuids.join("|")}|preferred:${buildAssignmentKey(singlePreferences)}|default:${defaultTaskId}`;
 }
 
 // 限制首页多节点历史请求的整条调用链，避免一次刷新长期占住轮询。
@@ -288,6 +295,7 @@ export async function buildBackendPingOverviewMap(
   signal?: AbortSignal,
   loadOverview: typeof getPingOverview = getPingOverview,
   previous?: PreviousPingOverview,
+  defaultTaskId = 0,
 ): Promise<PingOverviewMapResult> {
   const uuids = normalizeVisibleUuids(clientUuids);
   const preferredSingleTaskByClient = invertHomepagePingTaskBindings(bindings);
@@ -350,7 +358,11 @@ export async function buildBackendPingOverviewMap(
     }));
     multiLines.set(uuid, lines);
     const preferredTaskId = preferredSingleTaskByClient.get(uuid);
-    const singleLine = lines.find((line) => line.taskId === preferredTaskId) ?? lines[0];
+    // 绑定优先；没绑定的节点走站点「默认线路」（CFSM 口径），再退后台首条任务。
+    const singleLine =
+      lines.find((line) => line.taskId === preferredTaskId) ??
+      (defaultTaskId > 0 ? lines.find((line) => line.taskId === defaultTaskId) : undefined) ??
+      lines[0];
     singleItems.set(uuid, singleLine ?? {
       client: uuid,
       isAssigned: false,
@@ -420,6 +432,7 @@ let pingOverviewStatus: PingOverviewStatusSnapshot = EMPTY_PING_STATUS;
 let scheduledVisibleUuids: string[] = [];
 let scheduledVisibleKey = "";
 let scheduledBindings: HomepagePingTaskBindings = {};
+let scheduledDefaultTaskId = 0;
 let scheduledSelectionKey = "";
 let pingRefreshInFlight = false;
 let pingRefreshTimer: number | null = null;
@@ -758,6 +771,11 @@ function commitPingOverview(
   }
 }
 
+/** 手动刷新首页 Ping 概览（浮动控制球的刷新按钮）；轮询未启动或已在刷新时是空操作。 */
+export function refreshHomepagePingOverview(): Promise<void> {
+  return refreshPingOverview();
+}
+
 async function refreshPingOverview() {
   if (pingPollingDisposed || pingRefreshInFlight) return;
 
@@ -796,6 +814,7 @@ async function refreshPingOverview() {
       signal,
       getPingOverview,
       pingOverviewState,
+      scheduledDefaultTaskId,
     );
     if (isCurrent()) {
       const nextStatus: PingOverviewLoadState = next.successfulRequest ? "ready" : "error";
@@ -844,10 +863,11 @@ async function refreshPingOverview() {
 function ensurePingOverviewStarted(
   visibleUuids: string[],
   bindings: HomepagePingTaskBindings,
+  defaultTaskId = 0,
 ) {
   const normalizedVisibleUuids = normalizeVisibleUuids(visibleUuids);
   const visibleKey = normalizedVisibleUuids.join("|");
-  const selectionKey = resolvePingAssignmentKey(normalizedVisibleUuids, bindings);
+  const selectionKey = resolvePingAssignmentKey(normalizedVisibleUuids, bindings, defaultTaskId);
 
   if (
     scheduledVisibleKey !== visibleKey ||
@@ -856,6 +876,7 @@ function ensurePingOverviewStarted(
     scheduledVisibleUuids = normalizedVisibleUuids;
     scheduledVisibleKey = visibleKey;
     scheduledBindings = bindings;
+    scheduledDefaultTaskId = defaultTaskId;
     scheduledSelectionKey = selectionKey;
 
     pingAbortController?.abort();
@@ -931,6 +952,7 @@ export function useHomepagePingOverview() {
     [visibleUuids, hiddenUuids],
   );
   const requestedBindings = themeSettings.homepagePingBindings;
+  const requestedDefaultTaskId = themeSettings.homepageDefaultPingTaskId;
   const hasRequestedVisiblePing = effectiveUuids.length > 0;
 
   useLayoutEffect(() => {
@@ -943,6 +965,7 @@ export function useHomepagePingOverview() {
     ensurePingOverviewStarted(
       effectiveUuids,
       requestedBindings,
+      requestedDefaultTaskId,
     );
     return () => {
       activeConsumers -= 1;
@@ -954,6 +977,7 @@ export function useHomepagePingOverview() {
   }, [
     effectiveUuids,
     requestedBindings,
+    requestedDefaultTaskId,
     hasRequestedVisiblePing,
     themeSettings.isReady,
   ]);
@@ -1004,6 +1028,12 @@ export function usePingTaskNames(): ReadonlyMap<number, string> {
   }, []);
   const getSnapshot = useCallback(() => pingOverviewState.taskNames, []);
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/** 这台节点本机换过的线路行（PingLineSwitcher 写入）。 */
+export function useNodePingLineOverrides(uuid: string): PingLineOverrides {
+  const getSnapshot = useCallback(() => getPingLineOverrides(uuid), [uuid]);
+  return useSyncExternalStore(subscribePingLineOverrides, getSnapshot, getSnapshot);
 }
 
 /**

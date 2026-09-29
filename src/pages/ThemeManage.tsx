@@ -224,6 +224,7 @@ function pickManagedThemeSettings(settings: ResolvedThemeSettings) {
     mobileNodeViewMode: settings.mobileNodeViewMode,
     hideAdminEntryWhenLoggedOut: settings.hideAdminEntryWhenLoggedOut,
     homepagePingBindings: settings.homepagePingBindings,
+    homepageDefaultPingTaskId: settings.homepageDefaultPingTaskId,
     enableHomepageMultiPing: settings.enableHomepageMultiPing,
     homepageMultiPingTaskIds: settings.homepageMultiPingTaskIds,
     homepageMultiPingNodeTaskIds: settings.homepageMultiPingNodeTaskIds,
@@ -236,6 +237,7 @@ function pickManagedThemeSettings(settings: ResolvedThemeSettings) {
     showRegionBar: settings.showRegionBar,
     showCardGroup: settings.showCardGroup,
     homeGroupOrder: settings.homeGroupOrder,
+    homeRegionOrder: settings.homeRegionOrder,
     homeDefaultGroup: settings.homeDefaultGroup,
     enableHomeSort: settings.enableHomeSort,
     offlineNodesFirst: settings.offlineNodesFirst,
@@ -913,6 +915,39 @@ export function ThemeManage() {
     const next = [...orderedDraftGroups];
     [next[index], next[target]] = [next[target], next[index]];
     patch("homeGroupOrder", next);
+  };
+
+  // 后端节点实际存在的地区代码,按首页地区栏的默认顺序排列;站长在这里调整顺序。
+  const availableRegions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          sortedClients
+            .map((client) => client.region.trim().toUpperCase())
+            .filter(Boolean),
+        ),
+      ),
+    [sortedClients],
+  );
+  const orderedDraftRegions = useMemo(() => {
+    const orderIndex = new Map(draft.homeRegionOrder.map((code, index) => [code, index]));
+    return [...availableRegions].sort((left, right) => {
+      const leftIndex = orderIndex.get(left);
+      const rightIndex = orderIndex.get(right);
+      if (leftIndex != null || rightIndex != null) {
+        if (leftIndex == null) return 1;
+        if (rightIndex == null) return -1;
+        return leftIndex - rightIndex;
+      }
+      return 0;
+    });
+  }, [availableRegions, draft.homeRegionOrder]);
+  const moveRegion = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= orderedDraftRegions.length) return;
+    const next = [...orderedDraftRegions];
+    [next[index], next[target]] = [next[target], next[index]];
+    patch("homeRegionOrder", next);
   };
 
   const filteredTasks = useMemo(() => {
@@ -1992,6 +2027,54 @@ export function ThemeManage() {
               ))}
             </ul>
           )}
+
+          <div className="mt-4 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <span className="text-[13px] font-medium text-[var(--text-primary)]">地区排序</span>
+            <span className="text-[11px] text-[var(--text-tertiary)]">
+              调整首页地区栏的显示顺序；未列出的地区按默认地理优先级排在后面。
+            </span>
+          </div>
+          {orderedDraftRegions.length === 0 ? (
+            <p className="surface-inset mt-2 px-4 py-3 text-[12px] text-[var(--text-tertiary)]">
+              {clientsLoading ? "正在加载地区…" : "暂无地区（节点未设置地区时无需排序）"}
+            </p>
+          ) : (
+            <ul className="mt-2 flex flex-col gap-2">
+              {orderedDraftRegions.map((region, index) => (
+                <li
+                  key={region}
+                  className="surface-inset flex items-center justify-between gap-3 px-4 py-2.5"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="tabular text-[12px] text-[var(--text-tertiary)]">
+                      {index + 1}
+                    </span>
+                    <span className="text-[13px] text-[var(--text-primary)]">{region}</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={index === 0}
+                      onClick={() => moveRegion(index, -1)}
+                      className="theme-manage-button is-compact"
+                      aria-label={`上移地区 ${region}`}
+                    >
+                      <ChevronUp size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={index === orderedDraftRegions.length - 1}
+                      onClick={() => moveRegion(index, 1)}
+                      className="theme-manage-button is-compact"
+                      aria-label={`下移地区 ${region}`}
+                    >
+                      <ChevronDown size={14} />
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <div className="mt-4 surface-inset px-4 py-4">
@@ -2455,6 +2538,30 @@ export function ThemeManage() {
               下方选择只影响迷你卡片和列表优先显示的任务；大卡片与小卡片按后台任务自动显示。
             </div>
           )}
+
+          <label className="surface-inset flex items-center justify-between gap-3 px-4 py-3">
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium text-[var(--text-primary)]">
+                单线路默认线路
+              </span>
+              <span className="mt-1 block text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+                没有单独绑定优先线路的节点走这里选的线路；迷你卡片与列表也按它显示。「后台首条」表示用后台分配的第一条任务。
+              </span>
+            </span>
+            <select
+              value={draft.homepageDefaultPingTaskId}
+              onChange={(event) => patch("homepageDefaultPingTaskId", Number(event.target.value))}
+              aria-label="单线路默认线路"
+              className="surface-inset max-w-[46%] w-40 shrink-0 px-3 py-2 text-[13px] text-[var(--text-primary)] outline-none"
+            >
+              <option value={0}>后台首条任务</option>
+              {sortedTasks.map((task) => (
+                <option key={task.id} value={task.id}>
+                  {task.name || `任务 #${task.id}`}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <ToggleRow
             field="fakePingForUnbound"

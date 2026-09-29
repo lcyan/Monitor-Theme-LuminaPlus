@@ -8,6 +8,7 @@ import {
   useNodePingOverviewLines,
   usePingBuckets,
   usePingTaskNames,
+  useNodePingLineOverrides,
 } from "@/hooks/usePingOverview";
 import { useThemeSettings } from "@/hooks/useThemeSettings";
 import type { HomepagePingDisplayLine } from "@/types/models";
@@ -33,6 +34,10 @@ import {
   isHomepageMultiPingConfigured,
   resolveVisibleHomepagePingTaskIds,
 } from "@/utils/pingTasks";
+import {
+  resolveNodePingLineTaskIds,
+  type PingLineOverrides,
+} from "@/utils/pingLineOverrides";
 
 interface NodeCardModelOptions {
   pingBucketCount?: number;
@@ -103,51 +108,62 @@ export function useNodeCardModel(
   );
   // 与 usePingBuckets 同理:窗口按分钟前移,不依赖数据刷新才滑动。
   const bucketNow = useMinuteClock(multiPingActive);
+  const localLineOverrides = useNodePingLineOverrides(uuid);
   // 行序与条数由全局线路选择决定（CFSM 口径）：选几条所有节点就显示几行；
   // 这台节点未被后台分配某条线路时保留该行，显示「未分配/无样本」。
+  // 访客本机换过的行（PingLineSwitcher）盖在其上：换向后台已撤销的任务时自动回落默认。
   const homepagePingLines = useMemo<HomepagePingDisplayLine[]>(() => {
     if (
       !multiPingActive
     ) {
       return [];
     }
-    const visibleTaskIds = resolveVisibleHomepagePingTaskIds(
+    const baseTaskIds = resolveVisibleHomepagePingTaskIds(
       uuid,
       realPingLines.map((line) => line.taskId),
       homepageMultiPingTaskIds,
       homepageMultiPingNodeTaskIds,
     );
-    return visibleTaskIds.flatMap((taskId) => {
-      const loaded = realPingLines.find((line) => line.taskId === taskId);
-      if (loaded) {
-        const sourceLine = loaded;
-        if (
-          sourceLine.isAssigned === false ||
-          (sourceLine.loadState === "pending" && sourceLine.lastValue == null && sourceLine.loss == null)
-        ) return [];
-        return [{
-          ...sourceLine,
-          buckets: buildPingBuckets(sourceLine, pingBucketCount, bucketNow, offlineSince),
-        }];
-      }
-      const unassigned: HomepagePingDisplayLine = {
-        client: uuid,
-        taskId,
-        taskName: pingTaskNames.get(taskId) ?? `任务 #${taskId}`,
-        isAssigned: false,
-        loadState: "ready",
-        lastValue: null,
-        samples: [],
-        max: 1,
-        loss: null,
-        buckets: buildPingBuckets({ samples: [] }, pingBucketCount, bucketNow),
-      };
-      return [unassigned];
-    });
+    const knownTaskIds = new Set<number>([
+      ...baseTaskIds,
+      ...realPingLines.map((line) => line.taskId),
+    ]);
+    const effectiveOverrides: PingLineOverrides = Object.fromEntries(
+      Object.entries(localLineOverrides).filter(([, taskId]) => knownTaskIds.has(taskId)),
+    );
+    const visibleTaskIds = resolveNodePingLineTaskIds(baseTaskIds, effectiveOverrides);
+    // 按行号渲染而不是按任务 id：访客在某行换了线路后，这一行的位置和行数保持稳定。
+    return visibleTaskIds
+      .map((taskId): HomepagePingDisplayLine | null => {
+        const loaded = realPingLines.find((line) => line.taskId === taskId);
+        if (loaded) {
+          const sourceLine = loaded;
+          if (sourceLine.isAssigned === false) return null;
+          return {
+            ...sourceLine,
+            buckets: buildPingBuckets(sourceLine, pingBucketCount, bucketNow, offlineSince),
+          };
+        }
+        const unassigned: HomepagePingDisplayLine = {
+          client: uuid,
+          taskId,
+          taskName: pingTaskNames.get(taskId) ?? `任务 #${taskId}`,
+          isAssigned: false,
+          loadState: "ready",
+          lastValue: null,
+          samples: [],
+          max: 1,
+          loss: null,
+          buckets: buildPingBuckets({ samples: [] }, pingBucketCount, bucketNow),
+        };
+        return unassigned;
+      })
+      .filter((line): line is HomepagePingDisplayLine => line != null);
   }, [
     bucketNow,
     homepageMultiPingNodeTaskIds,
     homepageMultiPingTaskIds,
+    localLineOverrides,
     multiPingActive,
     offlineSince,
     pingBucketCount,

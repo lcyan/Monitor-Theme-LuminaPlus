@@ -18,7 +18,10 @@ import {
   type CostPremiumEntry,
 } from "@/utils/cost";
 import { normalizeNodeIdentityList } from "@/utils/nodeIdentity";
-import { normalizeHomeGroupOrder } from "@/utils/homeNodes";
+import {
+  normalizeHomeGroupOrder,
+  normalizeHomeRegionOrder,
+} from "@/utils/homeNodes";
 import {
   HOME_SORT_NATURAL_DIRECTION,
   isHomeSortDirection,
@@ -63,6 +66,8 @@ export interface ResolvedThemeSettings {
   hideAdminEntryWhenLoggedOut: boolean;
   showPingChart: boolean;
   homepagePingBindings: HomepagePingTaskBindings;
+  /** 单线路模式的站点默认线路（任务 id；0 = 未设置，未绑定节点回退后台首条任务）。 */
+  homepageDefaultPingTaskId: number;
   enableHomepageMultiPing: boolean;
   homepageMultiPingTaskIds: number[];
   homepageMultiPingNodeTaskIds: HomepageMultiPingNodeTaskIds;
@@ -76,6 +81,8 @@ export interface ResolvedThemeSettings {
   showRegionBar: boolean;
   showCardGroup: boolean;
   homeGroupOrder: string[];
+  /** 地区栏的地区顺序（设置页调整）；未列出的按默认地理优先级。 */
+  homeRegionOrder: string[];
   /** 首屏预选的节点分组；空串 = 「全部」。 */
   homeDefaultGroup: string;
   enableHomeSort: boolean;
@@ -129,7 +136,9 @@ export const DEFAULT_THEME_SETTINGS: ResolvedThemeSettings = {
   hideAdminEntryWhenLoggedOut: false,
   showPingChart: true,
   homepagePingBindings: {},
-  enableHomepageMultiPing: false,
+  homepageDefaultPingTaskId: 0,
+  // CFSM 默认开启多线路；一条线路都没选时首页按单线路回退，行为与关闭等价。
+  enableHomepageMultiPing: true,
   homepageMultiPingTaskIds: [],
   homepageMultiPingNodeTaskIds: {},
   fakePingForUnbound: false,
@@ -141,6 +150,7 @@ export const DEFAULT_THEME_SETTINGS: ResolvedThemeSettings = {
   showRegionBar: true,
   showCardGroup: true,
   homeGroupOrder: [],
+  homeRegionOrder: [],
   homeDefaultGroup: "",
   enableHomeSort: true,
   offlineNodesFirst: false,
@@ -281,6 +291,12 @@ function normalizeHomeSortDefault(
   };
 }
 
+/** 单线路默认线路：只认正整数任务 id；0/写坏 = 未设置（回退后台首条任务）。 */
+function normalizeHomepageDefaultPingTaskId(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
+}
+
 function normalizeHomeDefaultGroup(value: unknown): string {
   return typeof value === "string" && value.trim() !== "" ? value.trim().slice(0, 120) : "";
 }
@@ -313,6 +329,9 @@ export function normalizeThemeSettings(
       settings?.hideAdminEntryWhenLoggedOut === true,
     showPingChart: enabledUnlessFalse(settings?.showPingChart),
     homepagePingBindings: normalizeHomepagePingTaskBindings(settings?.homepagePingBindings),
+    homepageDefaultPingTaskId: normalizeHomepageDefaultPingTaskId(
+      settings?.homepageDefaultPingTaskId,
+    ),
     // 保留开关原值，让管理页能呈现并修复尚未选择默认线路的配置。
     enableHomepageMultiPing: enabledUnlessFalse(settings?.enableHomepageMultiPing),
     homepageMultiPingTaskIds,
@@ -331,6 +350,7 @@ export function normalizeThemeSettings(
     showRegionBar: enabledUnlessFalse(settings?.showRegionBar),
     showCardGroup: enabledUnlessFalse(settings?.showCardGroup),
     homeGroupOrder: normalizeHomeGroupOrder(settings?.homeGroupOrder),
+    homeRegionOrder: normalizeHomeRegionOrder(settings?.homeRegionOrder),
     homeDefaultGroup: normalizeHomeDefaultGroup(settings?.homeDefaultGroup),
     enableHomeSort: enabledUnlessFalse(settings?.enableHomeSort),
     offlineNodesFirst: settings?.offlineNodesFirst === true,

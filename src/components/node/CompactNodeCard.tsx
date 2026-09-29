@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -23,6 +23,8 @@ import { formatBytes } from "@/utils/format";
 import { speedRateColor, speedRateColorFromBytes } from "@/utils/metricTone";
 import { supportsFineHover } from "@/utils/mediaQuery";
 import { formatHealthBucketTooltip } from "./pingBucketText";
+import { resolveTouchBucketIndex, TOUCH_BUCKET_HOLD_MS } from "./touchBucketPick";
+import { MetricDetailTip, useMetricDetailTip } from "./MetricDetailTip";
 import { MultiPingStatus } from "./MultiPingStatus";
 import { SimulatedPingBadge } from "./SimulatedPingBadge";
 import {
@@ -82,13 +84,16 @@ function CompactGauge({
     "--compact-gauge-color": color,
     "--compact-gauge-fill": `${clamp01(fraction) * 100}%`,
   } as CSSProperties;
+  const tip = useMetricDetailTip();
 
   return (
     <div
       className="compact-node-gauge"
       style={style}
-      title={detail ? `${label} ${value} · ${detail}` : `${label} ${value}`}
+      data-tip-open={detail && tip.open ? "true" : undefined}
+      {...(detail ? tip.handlers : undefined)}
     >
+      {detail && tip.open && <MetricDetailTip text={detail} />}
       <div className="compact-node-gauge-head">
         <span className="compact-node-gauge-label">
           {icon}
@@ -204,6 +209,7 @@ function HealthBars({
 }) {
   const bars = buckets.slice(-HEALTH_BAR_COUNT);
   const containerRef = useRef<HTMLDivElement>(null);
+  const touchHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const activeIndex = hoveredIndex ?? selectedIndex;
@@ -217,6 +223,27 @@ function HealthBars({
   const selectIndex = (next: number) => {
     if (bars.length === 0) return;
     setSelectedIndex(Math.max(0, Math.min(bars.length - 1, next)));
+  };
+
+  useEffect(
+    () => () => {
+      if (touchHoldTimerRef.current != null) clearTimeout(touchHoldTimerRef.current);
+    },
+    [],
+  );
+
+  /** 触屏：按在哪儿就选哪根柱子，命中判定挂在容器上（口径见 `touchBucketPick`）。 */
+  const handleTouchPick = (clientX: number) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const next = resolveTouchBucketIndex(clientX, rect, bars.length);
+    if (next == null) return;
+    selectIndex(next);
+    if (touchHoldTimerRef.current != null) clearTimeout(touchHoldTimerRef.current);
+    touchHoldTimerRef.current = setTimeout(() => {
+      touchHoldTimerRef.current = null;
+      setSelectedIndex(null);
+    }, TOUCH_BUCKET_HOLD_MS);
   };
 
   return (
@@ -235,6 +262,16 @@ function HealthBars({
       onBlur={() => {
         setHoveredIndex(null);
         setSelectedIndex(null);
+      }}
+      onPointerDown={(event) => {
+        // 精细指针照旧走 hover / 点选那一套（下面每根柱子自己的 onClick）。
+        if (supportsFineHover(event.pointerType)) return;
+        handleTouchPick(event.clientX);
+      }}
+      onPointerMove={(event) => {
+        // 手指按着横向划过去时跟随；没按着不动它（触屏没有悬停）。
+        if (supportsFineHover(event.pointerType) || event.buttons === 0) return;
+        handleTouchPick(event.clientX);
       }}
       onKeyDown={(event) => {
         const current = selectedIndex ?? bars.length - 1;
@@ -414,7 +451,7 @@ function CompactNodeVitals({
         icon={<Cpu size={12} />}
         label="CPU"
         value={formatCompactPercent(node.cpuPct)}
-        detail={`${node.cpu_cores || 0} 核`}
+        detail={`${node.cpuPct.toFixed(2)}% · ${node.cpu_cores || 0} 核`}
         fraction={node.cpuPct / 100}
         color="var(--progress-cpu)"
       />
@@ -438,7 +475,7 @@ function CompactNodeVitals({
         icon={<Gauge size={12} />}
         label="负载"
         value={node.load1.toFixed(2)}
-        detail={`${node.load5.toFixed(2)} / ${node.load15.toFixed(2)}`}
+        detail={`${node.load1.toFixed(2)} / ${node.load5.toFixed(2)} / ${node.load15.toFixed(2)}`}
         fraction={loadFraction}
         color="var(--progress-load)"
       />
@@ -743,6 +780,7 @@ export const CompactNodeCard = memo(function CompactNodeCard({
       <CompactTrafficBar traffic={traffic} uptimeLabel={uptimeLabel} reset={trafficReset} />
       {multiPingActive && homepagePingLines.length > 0 ? (
         <MultiPingStatus
+          uuid={uuid}
           lines={homepagePingLines}
           density="compact"
           className="compact-node-bottom"
