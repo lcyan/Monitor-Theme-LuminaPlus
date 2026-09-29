@@ -227,6 +227,42 @@ body::after {
   transform: scale(0.96);
 }
 
+/* 右下角返回顶部火箭:与快捷栏同款玻璃圆钮;滚过一屏才浮现(见 BackToTop),
+   浮现/隐藏用 visibility+opacity+位移,和首页铭牌同一套过渡手感。 */
+.back-to-top {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right, 0px));
+  bottom: max(14px, env(safe-area-inset-bottom, 0px));
+  z-index: 80;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 160ms ease,
+    transform 180ms ease,
+    visibility 160ms ease;
+}
+
+.back-to-top[data-visible="true"] {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* lucide Rocket 机头默认斜向右上,转 -45° 让它朝上;悬停时轻轻上浮一点。 */
+.back-to-top svg {
+  transform: rotate(-45deg);
+  transition: transform 180ms ease;
+}
+
+.back-to-top:hover svg {
+  transform: rotate(-45deg) translateY(-1.5px);
+}
+
 /* 普通页面只处理页面边距与 iOS PWA 安全区，不为首页专属悬浮卡留空。 */
 .app-main {
   --app-gutter: 0.75rem;

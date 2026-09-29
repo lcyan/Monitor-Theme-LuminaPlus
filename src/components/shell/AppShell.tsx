@@ -2,6 +2,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { Lock } from "lucide-react";
 import { BackgroundLayer } from "./BackgroundLayer";
 import { AmbientEffectLayer } from "./AmbientEffectLayer";
+import { BackToTop } from "./BackToTop";
 import { SiteFooter } from "./SiteFooter";
 import { Spinner } from "@/components/ui/Spinner";
 import { useAppearance } from "@/hooks/useAppearance";
@@ -66,6 +67,7 @@ export function AppShell() {
         </div>
       </main>
       <SiteFooter />
+      <BackToTop />
     </div>
   );
 }

@@ -106,11 +106,14 @@ function TrafficBarsIcon({ size = 19 }: { size?: number }) {
 }
 
 // 站点铭牌由 CSS 放进 AppShell 顶部留白，不占概览卡内容流。
+// 铭牌整体 pointer-events:none（盖在顶部留白上），链接自身恢复命中并跳回首页。
 function HomeBrand({ siteName }: { siteName: string }) {
   return (
     <header className="home-brand" aria-label="站点名称">
       <h1 className="home-brand-title" title={siteName}>
-        {siteName}
+        <Link to="/" className="home-brand-link" aria-label={`返回首页 · ${siteName}`}>
+          {siteName}
+        </Link>
       </h1>
     </header>
   );

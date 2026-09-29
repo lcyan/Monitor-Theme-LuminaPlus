@@ -29,6 +29,17 @@
   white-space: nowrap;
 }
 
+/* 铭牌容器整体 pointer-events:none,只有站点名这个链接恢复命中——
+   点站点名回首页;其余留白继续把点击让给下面的内容。悬停轻微降透明提示可点。 */
+.home-brand-link {
+  pointer-events: auto;
+  transition: opacity 160ms ease;
+}
+
+.home-brand-link:hover {
+  opacity: 0.82;
+}
+
 .home-dashboard .floating-controls {
   transition:
     opacity 160ms ease,
