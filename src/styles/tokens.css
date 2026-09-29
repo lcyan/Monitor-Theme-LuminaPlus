@@ -84,12 +84,17 @@
   --ring: rgba(59, 130, 246, 0.35);
 
   /* 画布氛围层(只在纯色模式可见——透明模式的 body::before 图片会盖住 <html> 背景)。
-     顶部一道极淡的品牌冷光,给平铺画布一点「顶光」的纵深;亮色下几乎不可察,仅去掉死板。 */
+     三道极光式冷光(品牌蓝 / 青 / 紫,oklch 色相 250/200/280),几何与色相取自 New API
+     落地页的背景光晕;那边靠图层 opacity(亮 0.25/暗 0.12)压淡,这里没有图层可挂,
+     把它折进各色标 alpha:0.8/0.6/0.4 × 0.25 ≈ 0.20/0.15/0.10,再略收一档适配密度
+     更高的仪表盘(0.18/0.13/0.08)。 */
   --canvas-glow: radial-gradient(
-    1100px 560px at 50% -8%,
-    color-mix(in srgb, var(--accent-500) 5%, transparent) 0%,
-    transparent 60%
-  );
+      60% 50% at 20% 20%,
+      oklch(0.72 0.18 250 / 0.18) 0%,
+      transparent 70%
+    ),
+    radial-gradient(50% 40% at 80% 15%, oklch(0.65 0.15 200 / 0.13) 0%, transparent 70%),
+    radial-gradient(40% 35% at 40% 80%, oklch(0.7 0.12 280 / 0.08) 0%, transparent 70%);
 }
 
 :root[data-appearance="dark"] {
@@ -152,6 +157,8 @@
 
   --ring: rgba(83, 155, 245, 0.5);
 
+  /* 暗色不给光晕:卡片几乎铺满视口,试过同款极光(α 0.10/0.07/0.05)肉眼不可辨,
+     白背一层渐变。暗色的纵深交给 --dark-depth 本身。 */
   --canvas-glow: none;
 }
 
