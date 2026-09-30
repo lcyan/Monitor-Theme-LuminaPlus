@@ -4,7 +4,7 @@ LuminaPlus 是为 [monitor](https://github.com/monitor-probe/monitor) 移植的�
 
 本项目基于 [Komari-Theme-LuminaPlus](https://github.com/shanyang242/Komari-Theme-LuminaPlus) 移植，并继续遵循 MIT 许可证。
 
-维护仓库与发布地址：[kure29/Monitor-Theme-LuminaPlus](https://github.com/kure29/Monitor-Theme-LuminaPlus)
+维护仓库与发布地址：[lcyan/Monitor-Theme-LuminaPlus](https://github.com/lcyan/Monitor-Theme-LuminaPlus)（移植自 kure29 的同名项目）
 
 ![Monitor Theme LuminaPlus 预览](docs/images/monitor-theme-preview.png)
 
@@ -14,7 +14,7 @@ LuminaPlus 是为 [monitor](https://github.com/monitor-probe/monitor) 移植的�
 - monitor `/api/ws` 实时节点快照，断线时自动回退 HTTP
 - CPU、内存、Swap、磁盘、负载、网络和连接数实时指标
 - CPU、内存、磁盘和网络历史图表
-- 多探测点 Ping 延迟与丢包历史图表
+- 多探测点 Ping 延迟与丢包历史图表，实例页支持延迟/丢包率视图切换与丢包色带
 - 今日流量、速率历史和峰值统计
 - 费用、账单周期、到期时间和资产统计
 - 国家地区筛选、亮色/暗色外观、背景图片、桌面视频和环境动效
@@ -22,9 +22,14 @@ LuminaPlus 是为 [monitor](https://github.com/monitor-probe/monitor) 移植的�
 
 ## 当前限制
 
-- monitor 目前没有公开标签和公开备注字段，相应展示项在无数据时自动隐藏；节点分组已支持。
+- monitor 目前没有公开标签字段，标签展示项在无数据时自动隐藏；备注（remark）只对登录用户
+  可见，匿名访客同样自动隐藏；节点分组已支持。
 - monitor 不向匿名主题下发 IP 地址；本主题不依赖额外的 IP 信息插件。
 - monitor 历史接口目前不提供 Swap、连接数、进程数和 Load 历史，这些指标仍可显示实时值。
+- monitor 返回的历史采样是聚合点，单格的样本数按窗口加权估计，因此延迟提示不展示
+  「丢失/总数」原始计数，只展示百分比与窗口丢包率。
+- 主题的后台入口固定指向 `/admin`。monitor 没有自定义后台路径和插件机制，
+  Komari 版的 admin-path 插件兼容与后台 404 恢复入口在这里不适用。
 - 首页 Ping 与节点详情页都读取 monitor 后台分配给服务器的探测任务和历史；后台调整分配后，
   首页会自动同步。主题设置只调整显示顺序和按服务器筛选。
 - 开启「后台未分配任务时显示模拟延迟」后，在线且未分配任务的节点会显示带「模拟」标记的数值；
@@ -44,11 +49,11 @@ monitor 数据库中的设置。主题设置页不再提供旧版配置迁移入
 
 ## 开发
 
-准备一个运行在 `127.0.0.1:9911` 的 monitor hub：
+依赖管理使用 [pnpm](https://pnpm.io)（Node 22+）。准备一个运行在 `127.0.0.1:9911` 的 monitor hub：
 
 ```bash
-npm ci
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 Vite 会把 `/api` 和 WebSocket 请求代理到 hub。
@@ -56,10 +61,10 @@ Vite 会把 `/api` 和 WebSocket 请求代理到 hub。
 提交前运行：
 
 ```bash
-npm run typecheck
-npm run lint
-npm test
-npm run build
+pnpm run typecheck
+pnpm run lint
+pnpm test
+pnpm run build
 ```
 
 ## 打包与安装
@@ -67,7 +72,7 @@ npm run build
 生成 monitor 可安装的主题包：
 
 ```bash
-npm run package
+pnpm run package
 ```
 
 产物为仓库根目录下的 `theme.tar.gz`，内部结构为：
@@ -97,7 +102,7 @@ preview.png
 
 ## 自定义背景资源
 
-把图片或视频放入 `public/assets/`，重新执行 `npm run package`，然后在主题设置中填写 `/assets/<文件名>`。
+把图片或视频放入 `public/assets/`，重新执行 `pnpm run package`，然后在主题设置中填写 `/assets/<文件名>`。
 
 桌面视频建议使用短循环、无音轨的 H.264 MP4 或兼容 WebM。触屏设备、窄屏、减少动态效果和省流量模式会自动使用背景图片。
 

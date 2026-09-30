@@ -54,14 +54,16 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      - run: npm run package
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm test
+      - run: pnpm run package
       - run: sha256sum theme.tar.gz | cut -d' ' -f1 | tee theme.tar.gz.sha256
       - uses: actions/upload-artifact@v4
         with:
