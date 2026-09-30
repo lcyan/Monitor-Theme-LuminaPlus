@@ -4,6 +4,7 @@ import { useHourlyClock, useMinuteClock } from "@/hooks/useClock";
 import { useNodeCardSnapshots } from "@/hooks/useNode";
 import {
   buildPingBuckets,
+  useAutoSimulatedPingLineCount,
   useNodePingOverview,
   useNodePingOverviewLines,
   usePingBuckets,
@@ -11,8 +12,13 @@ import {
   useNodePingLineOverrides,
 } from "@/hooks/usePingOverview";
 import { useThemeSettings } from "@/hooks/useThemeSettings";
-import type { HomepagePingDisplayLine } from "@/types/models";
+import type {
+  HomepagePingDisplayLine,
+  HomepagePingLine,
+  PingOverviewItem,
+} from "@/types/models";
 import { formatRenewalPrice } from "@/utils/billing";
+import { buildFakePingItem } from "@/utils/fakePing";
 import { getExpireTextColor } from "@/utils/expireStatus";
 import { getTrafficResetDisplay } from "@/utils/trafficReset";
 import {
@@ -33,6 +39,7 @@ import { resolveOsInfo } from "@/components/ui/OsLogo";
 import {
   isHomepageMultiPingConfigured,
   resolveVisibleHomepagePingTaskIds,
+  type HomepageMultiPingNodeTaskIds,
 } from "@/utils/pingTasks";
 import {
   resolveNodePingLineTaskIds,
@@ -51,6 +58,47 @@ export function shouldRenderHomepagePingBars(
   return hasRealHomepagePingBinding || pingIsAssigned;
 }
 
+export function buildHomepagePingDisplayLines(
+  uuid: string,
+  realLines: HomepagePingLine[],
+  fallbackPing: PingOverviewItem,
+  preferredTaskIds: number[],
+  nodeTaskIds: HomepageMultiPingNodeTaskIds,
+  fakeLineCount: number,
+  bucketCount: number | undefined,
+  now: number,
+): HomepagePingDisplayLine[] {
+  const visibleTaskIds = resolveVisibleHomepagePingTaskIds(
+    uuid,
+    realLines.map((line) => line.taskId),
+    preferredTaskIds,
+    nodeTaskIds,
+  );
+  const visibleLines = visibleTaskIds.flatMap((taskId) => {
+    const line = realLines.find((item) => item.taskId === taskId);
+    if (
+      !line ||
+      line.isAssigned === false ||
+      (line.loadState === "pending" && line.lastValue == null && line.loss == null)
+    ) return [];
+    return [{ ...line, buckets: buildPingBuckets(line, bucketCount, now) }];
+  });
+  if (visibleLines.length > 0 || realLines.length > 0 || fallbackPing.simulated !== true) {
+    return visibleLines;
+  }
+  return Array.from({ length: fakeLineCount }, (_, lineIndex) => {
+    const item = lineIndex === 0
+      ? fallbackPing
+      : buildFakePingItem(uuid, Math.floor(now / 60_000), lineIndex);
+    return {
+      taskId: lineIndex === 0 ? 0 : -lineIndex,
+      taskName: fakeLineCount === 1 ? "延迟" : `延迟 ${lineIndex + 1}`,
+      ...item,
+      buckets: buildPingBuckets(item, bucketCount, now),
+    };
+  });
+}
+
 export function useNodeCardModel(
   uuid: string,
   {
@@ -63,6 +111,7 @@ export function useNodeCardModel(
     showCardGroup,
     showCardPrice,
     fakePingForUnbound,
+    fakePingLineCount,
     enableHomepageMultiPing,
     homepageMultiPingTaskIds,
     homepageMultiPingNodeTaskIds,
@@ -73,8 +122,17 @@ export function useNodeCardModel(
     includeMultiPing &&
     enableHomepageMultiPing &&
     isHomepageMultiPingConfigured(homepageMultiPingTaskIds);
-  const realPing = useNodePingOverview(uuid, !multiPingActive);
+  // fakePingForUnbound 开启时也订阅单线路概览：未绑定节点的 isAssigned/loadState 是
+  // 「auto 模拟行数」的判定信号（kure29 09-27 口径）。
+  const realPing = useNodePingOverview(uuid, !multiPingActive || fakePingForUnbound);
   const realPingLines = useNodePingOverviewLines(uuid, multiPingActive);
+  const autoFakePingLineCount = useAutoSimulatedPingLineCount(
+    multiPingActive && fakePingForUnbound && fakePingLineCount === "auto" &&
+    metrics?.online === true && realPing.loadState === "ready" && !realPing.isAssigned,
+  );
+  const simulatedLineCount = fakePingLineCount === "auto"
+    ? autoFakePingLineCount
+    : fakePingLineCount;
   const hasRealHomepagePingBinding = useMemo(
     () => multiPingActive || realPing.isAssigned || realPing.loadState === "error",
     [multiPingActive, realPing.isAssigned, realPing.loadState],
@@ -84,7 +142,7 @@ export function useNodeCardModel(
     uuid,
     realPing,
     metrics?.online === true,
-    fakePingForUnbound && !multiPingActive,
+    fakePingForUnbound,
   );
   // 状态跟随每条任务数据进入 Store,不再订阅全局 isRefreshing。这样后台轮询开始/结束
   // 时不会让所有节点卡片仅因一个布尔值变化而重渲染。
@@ -117,6 +175,22 @@ export function useNodeCardModel(
       !multiPingActive
     ) {
       return [];
+    }
+    // 节点完全未被后台绑定且站长开启模拟延迟时：显示与可见探测数匹配的模拟线路，
+    // 而不是一排「未分配/无样本」占位（kure29 09-27 口径；关闭模拟时仍走占位行）。
+    if (realPingLines.length === 0 && ping.simulated === true) {
+      return Array.from({ length: Math.max(1, simulatedLineCount) }, (_, lineIndex) => {
+        const item = lineIndex === 0
+          ? ping
+          : buildFakePingItem(uuid, Math.floor(bucketNow / 60_000), lineIndex);
+        const line: HomepagePingDisplayLine = {
+          taskId: lineIndex === 0 ? 0 : -lineIndex,
+          taskName: simulatedLineCount === 1 ? "延迟" : `延迟 ${lineIndex + 1}`,
+          ...item,
+          buckets: buildPingBuckets(item, pingBucketCount, bucketNow, offlineSince),
+        };
+        return line;
+      });
     }
     const baseTaskIds = resolveVisibleHomepagePingTaskIds(
       uuid,
@@ -166,9 +240,11 @@ export function useNodeCardModel(
     localLineOverrides,
     multiPingActive,
     offlineSince,
+    ping,
     pingBucketCount,
     pingTaskNames,
     realPingLines,
+    simulatedLineCount,
     uuid,
   ]);
 

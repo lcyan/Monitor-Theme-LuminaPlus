@@ -412,7 +412,6 @@ export function NodeGrid() {
     : configuredSortDirection;
   const [selectedGroup, setSelectedGroup] = useState(HOME_ALL_GROUP);
   const [selectedRegion, setSelectedRegion] = useState(HOME_ALL_REGION);
-  useHomepagePingOverview();
 
   // 摘要不含名称，先从完整 meta 解析主题隐藏列表，再统一过滤各类数据。
   const hiddenUuids = useHiddenNodeUuids();
@@ -570,6 +569,11 @@ export function NodeGrid() {
         : groupFilteredNodes.filter((node) => getDisplayRegionCode(node.region) === selectedRegion),
     [groupFilteredNodes, selectedRegion],
   );
+  const displayedNodeUuids = useMemo(
+    () => filteredNodes.map((node) => node.uuid),
+    [filteredNodes],
+  );
+  useHomepagePingOverview(displayedNodeUuids);
   // 排序在分组筛选之后。离线节点按设置置顶/沉底;实时网速走防抖(键平滑+滞回+5s 重排)。
   const orderedNodes = useHomeNodeOrder({
     offlineFirst: themeSettings.isReady && themeSettings.offlineNodesFirst,
