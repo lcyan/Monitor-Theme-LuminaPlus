@@ -53,14 +53,18 @@ describe("multi-line simulated ping", () => {
       max: 85,
       loss: 0,
     };
-    const shown = buildHomepagePingDisplayLines("node-a", [realLine], fakePing, [], {}, 6, 24, NOW);
+    const shown = buildHomepagePingDisplayLines("node-a", [realLine], fakePing, [7], {}, 6, 24, NOW);
     expect(shown).toMatchObject([{ taskId: 7, lastValue: 85 }]);
     expect(shown[0]?.simulated).not.toBe(true);
 
     const hidden = buildHomepagePingDisplayLines(
-      "node-a", [realLine], fakePing, [], { "node-a": [8] }, 6, 24, NOW,
+      "node-a", [realLine], fakePing, [7], { "node-a": [8] }, 6, 24, NOW,
     );
     expect(hidden).toEqual([]);
+
+    // CFSM 口径：全局一条都没选 = 单线路回退，辅助函数不再按后台分配展开行。
+    const unselected = buildHomepagePingDisplayLines("node-a", [realLine], fakePing, [], {}, 6, 24, NOW);
+    expect(unselected).toEqual([]);
   });
 
   it("does not simulate before assignment data is ready or after a request error", () => {

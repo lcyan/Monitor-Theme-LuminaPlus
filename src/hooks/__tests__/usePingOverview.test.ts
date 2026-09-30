@@ -24,12 +24,16 @@ describe("auto simulated line count", () => {
       ["hidden", [1, 2, 3, 4, 5].map((id) => line(id, "hidden"))],
     ]);
     expect(countVisibleHomepagePingLines(
-      byNode, [], { "node-a": [1, 2] }, new Set(["node-a", "node-b"]),
+      byNode, [1, 2, 3], { "node-a": [1, 2] }, new Set(["node-a", "node-b"]),
     )).toBe(3);
     expect(countVisibleHomepagePingLines(
-      byNode, [], { "node-a": [1, 2] }, new Set(["node-a"]),
+      byNode, [1, 2, 3], { "node-a": [1, 2] }, new Set(["node-a"]),
     )).toBe(2);
     expect(countVisibleHomepagePingLines(byNode, [], {}, new Set(["unassigned"]))).toBe(1);
+    // CFSM 口径：全局一条都没选 = 单线路回退，按服务器配置不放大模拟行数。
+    expect(countVisibleHomepagePingLines(
+      byNode, [], { "node-a": [1, 2] }, new Set(["node-a", "node-b"]),
+    )).toBe(1);
   });
 });
 
