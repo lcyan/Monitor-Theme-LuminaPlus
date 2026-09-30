@@ -212,6 +212,7 @@ function defaultThemeSettings() {
     desktopNodeViewMode: "compact",
     mobileNodeViewMode: "compact",
     showHomeOverview: true,
+    showGroupTabs: true,
     showRegionBar: true,
     showCardGroup: true,
     enableHomeSort: true,
@@ -225,6 +226,11 @@ function defaultThemeSettings() {
     showPingChart: true,
     showTodayTrafficPopover: true,
     homepagePingBindings: { "2": ["1", "2", "3", "4", "5"] },
+    // ?multiPing=1 时预览全局多线路；单任务刻意和三网首项不同，便于回归验证。
+    enableHomepageMultiPing:
+      new URLSearchParams(window.location.search).get("multiPing") === "1",
+    homepageMultiPingTaskIds: [1, 2, 3],
+    homepageMultiPingNodeTaskIds: { "1": [3, 2, 1], "2": [1, 4, 3] },
   };
 }
 
