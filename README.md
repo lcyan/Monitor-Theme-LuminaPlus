@@ -2,9 +2,9 @@
 
 LuminaPlus 是为 [monitor](https://github.com/monitor-probe/monitor) 移植的独立公开状态主题，保留原版 LuminaPlus 的高信息密度卡片、响应式布局、资源图表、流量统计、资产统计和背景外观能力。
 
-本项目基于 [Komari-Theme-LuminaPlus](https://github.com/shanyang242/Komari-Theme-LuminaPlus) 移植，并继续遵循 MIT 许可证。
+本项目是在 [kure29/Monitor-Theme-LuminaPlus](https://github.com/kure29/Monitor-Theme-LuminaPlus) 的基础上，针对 [monitor](https://github.com/monitor-probe/monitor) 进行移植和维护的独立公开主题；kure29 的项目基于 [shanyang242/Komari-Theme-LuminaPlus](https://github.com/shanyang242/Komari-Theme-LuminaPlus) 移植。特别感谢这两个项目及其作者提供的设计、实现和开源基础。本项目继续遵循 MIT 许可证。
 
-维护仓库与发布地址：[lcyan/Monitor-Theme-LuminaPlus](https://github.com/lcyan/Monitor-Theme-LuminaPlus)（移植自 kure29 的同名项目）
+维护仓库与发布地址：[lcyan/Monitor-Theme-LuminaPlus](https://github.com/lcyan/Monitor-Theme-LuminaPlus)
 
 ![Monitor Theme LuminaPlus 预览](docs/images/monitor-theme-preview.png)
 
@@ -146,6 +146,7 @@ preview.png
 
 ## 致谢
 
+- [kure29/Monitor-Theme-LuminaPlus](https://github.com/kure29/Monitor-Theme-LuminaPlus)
 - [shanyang242/Komari-Theme-LuminaPlus](https://github.com/shanyang242/Komari-Theme-LuminaPlus)
 - [stqfdyr/komari-theme-Lumina](https://github.com/stqfdyr/komari-theme-Lumina)
 - [monitor-probe/monitor](https://github.com/monitor-probe/monitor)
