@@ -161,7 +161,6 @@ export function useNodeCardModel(
     localLineOverrides,
     multiPingActive,
     offlineSince,
-    ping,
     pingBucketCount,
     pingTaskNames,
     realPingLines,
