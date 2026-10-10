@@ -59,25 +59,33 @@ const RESUME_REFETCH_HIDDEN_MS = 30_000;
 /** 兜底：在前台但这么久没收到实时样本（WS 掉了、实时连接到时限），同样重拉一次补上。 */
 const STALE_TAIL_REFETCH_MS = 5 * 60_000;
 
-const CPU_KEYS = ["cpu"];
-const CPU_COLORS = [CHART_PALETTE.cpu];
+const CPU_KEYS = ["cpu", "cpuMax"];
+const CPU_COLORS = [CHART_PALETTE.cpu, CHART_PALETTE.warning];
 const MEMORY_KEYS = ["ram", "swap"];
 const MEMORY_COLORS = [CHART_PALETTE.memory, CHART_PALETTE.warning];
 const DISK_KEYS = ["disk"];
 const DISK_COLORS = [CHART_PALETTE.disk];
-const NETWORK_KEYS = ["netIn", "netOut"];
-const NETWORK_COLORS = [CHART_PALETTE.success, CHART_PALETTE.cpu];
+const NETWORK_KEYS = ["netIn", "netInMax", "netOut", "netOutMax"];
+const NETWORK_COLORS = [
+  CHART_PALETTE.success,
+  CHART_PALETTE.warning,
+  CHART_PALETTE.cpu,
+  CHART_PALETTE.memory,
+];
 const CONNECTION_KEYS = ["connections", "udp"];
 const CONNECTION_COLORS = [CHART_PALETTE.memory, CHART_PALETTE.cpu];
 const PROCESS_KEYS = ["process"];
 const PROCESS_COLORS = [CHART_PALETTE.warning];
 const SERIES_LABELS: Record<string, string> = {
   cpu: "CPU",
+  cpuMax: "CPU 峰值",
   ram: "内存",
   swap: "Swap",
   disk: "磁盘",
   netIn: "下行",
+  netInMax: "下行峰值",
   netOut: "上行",
+  netOutMax: "上行峰值",
   connections: "TCP",
   udp: "UDP",
   process: "进程",
@@ -111,11 +119,14 @@ function getHistoryRenderLimit(hours: number) {
 
 const DOWNSAMPLE_KEYS = [
   "cpu",
+  "cpuMax",
   "ram",
   "swap",
   "disk",
   "netIn",
+  "netInMax",
   "netOut",
+  "netOutMax",
   "connections",
   "udp",
   "process",
@@ -152,12 +163,15 @@ function pointFromNode(node: NodeMetrics): ChartPoint {
   return {
     time: node.updatedAt > 0 ? node.updatedAt / 1000 : Date.now() / 1000,
     cpu: node.cpuPct,
+    cpuMax: null,
     // total 为 0 表示该指标不存在(如无 Swap),填 null 让 uPlot 不画线,而不是画一条假的 0%。
     ram: node.ramTotal > 0 ? (node.ramUsed / node.ramTotal) * 100 : null,
     swap: node.swapTotal > 0 ? (node.swapUsed / node.swapTotal) * 100 : null,
     disk: node.diskTotal > 0 ? (node.diskUsed / node.diskTotal) * 100 : null,
     netIn: node.netDown,
+    netInMax: null,
     netOut: node.netUp,
+    netOutMax: null,
     connections: node.connectionsTcp,
     udp: node.connectionsUdp,
     process: node.process,
@@ -166,7 +180,9 @@ function pointFromNode(node: NodeMetrics): ChartPoint {
 
 function formatTooltipValue(key: string, value: number | null | undefined, unit: string) {
   if (value == null || !Number.isFinite(value)) return "—";
-  if (key === "netIn" || key === "netOut") return formatTrafficRateLabel(value);
+  if (key === "netIn" || key === "netOut" || key === "netInMax" || key === "netOutMax") {
+    return formatTrafficRateLabel(value);
+  }
   if (unit === "%") return `${value.toFixed(2)}%`;
   if (key === "process" || key === "connections" || key === "udp") return `${Math.round(value)}`;
   return value.toFixed(2);
@@ -262,6 +278,7 @@ function buildBaseOptions({
         label: key,
         stroke: colors[index] ?? colors[0],
         fill: index === 0 ? `${colors[index] ?? colors[0]}22` : undefined,
+        dash: key.endsWith("Max") ? [5, 4] : undefined,
         width: 1.6,
         spanGaps: spanGaps ?? false,
         points: { show: false },
@@ -505,6 +522,7 @@ export function LoadChart({
       return {
         time,
         cpu: record.cpu,
+        cpuMax: record.cpu_max > 0 ? record.cpu_max : null,
         ram: totals.ramTotal > 0 ? (record.ram / totals.ramTotal) * 100 : null,
         swap:
           record.history_capabilities?.swap === false
@@ -514,7 +532,9 @@ export function LoadChart({
               : null,
         disk: totals.diskTotal > 0 ? (record.disk / totals.diskTotal) * 100 : null,
         netIn: record.net_in,
+        netInMax: record.net_in_max > 0 ? record.net_in_max : null,
         netOut: record.net_out,
+        netOutMax: record.net_out_max > 0 ? record.net_out_max : null,
         connections: record.history_capabilities?.connections === false ? null : record.connections,
         udp: record.history_capabilities?.connections === false ? null : record.connections_udp,
         process: record.history_capabilities?.process === false ? null : record.process,

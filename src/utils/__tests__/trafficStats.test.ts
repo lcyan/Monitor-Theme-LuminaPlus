@@ -27,6 +27,7 @@ function metricSeries(
 function record(time: string, overrides: Partial<LoadRecord> = {}): LoadRecord {
   return {
     cpu: 0,
+    cpu_max: 0,
     gpu: 0,
     ram: 0,
     ram_total: 0,
@@ -38,6 +39,8 @@ function record(time: string, overrides: Partial<LoadRecord> = {}): LoadRecord {
     disk_total: 0,
     net_in: 0,
     net_out: 0,
+    net_in_max: 0,
+    net_out_max: 0,
     net_total_up: 0,
     net_total_down: 0,
     process: 0,

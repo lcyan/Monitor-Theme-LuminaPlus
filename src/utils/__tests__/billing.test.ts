@@ -99,16 +99,16 @@ describe("formatRenewalPrice", () => {
   });
 
   it("renders positive prices with currency and billing cycle", () => {
-    expect(formatRenewalPrice({ price: 10, currency: "$", billing_cycle: 30 })).toBe("$10/月");
-    expect(formatRenewalPrice({ price: 10, currency: "USD", billing_cycle: "month" })).toBe("$10/月");
+    expect(formatRenewalPrice({ price: 10, currency: "$", billing_cycle: 30 })).toBe("$ 10.00/月");
+    expect(formatRenewalPrice({ price: 10, currency: "USD", billing_cycle: "month" })).toBe("US$10.00/月");
     expect(formatRenewalPrice({ price: 19.9, currency: "EUR", billing_cycle: "year" })).toBe("€19.90/年");
-    expect(formatRenewalPrice({ price: 19.9, currency: "¥", billing_cycle: -1 })).toBe("¥19.90/永久");
+    expect(formatRenewalPrice({ price: 19.9, currency: "¥", billing_cycle: -1 })).toBe("¥ 19.90/永久");
   });
 
   it("keeps monitor's triennial price on its own cycle (regression)", () => {
     // 三年付 1095:整期价格要配三年,而不是被摊成「1095/年」。
     expect(
       formatRenewalPrice({ price: 1095, currency: "CNY", billing_cycle: "triennial" }),
-    ).toBe("¥1,095/3年");
+    ).toBe("¥1,095.00/3年");
   });
 });

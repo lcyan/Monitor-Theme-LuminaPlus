@@ -35,7 +35,7 @@ describe("node list ping status", () => {
     });
   });
 
-  it("keeps simulated assigned ping in the normal display state", () => {
+  it("keeps an assigned ping without a sample in the normal display state", () => {
     expect(resolveListPingState(undefined, false, true)).toBe("ready");
     expect(formatListPingStatus(null, "ready").visibleText).toBe("无样本");
   });

@@ -17,7 +17,6 @@ import { OsLogo } from "@/components/ui/OsLogo";
 import { IpStackBadges } from "./IpStackBadges";
 import { NodeTodayTrafficPopover } from "./NodeTodayTrafficPopover";
 import { HealthBucketTooltip } from "./HealthBucketTooltip";
-import { SimulatedPingBadge } from "./SimulatedPingBadge";
 import { MetricDetailTip, useMetricDetailTip } from "./MetricDetailTip";
 import { resolveTouchBucketIndex, TOUCH_BUCKET_HOLD_MS } from "./touchBucketPick";
 import { useNodeCardModel } from "@/hooks/useNodeCardModel";
@@ -49,7 +48,7 @@ function MiniHeader({
   showTodayTraffic: boolean;
 }) {
   const detailLabels = nodeDetailLinkLabels(node.name, osName);
-  const detailHref = `/instance/${encodeURIComponent(node.uuid)}`;
+  const detailHref = `/node/${encodeURIComponent(node.uuid)}`;
   return (
     <header className="mini-node-header">
       <Flag region={node.region} size={14} />
@@ -392,9 +391,7 @@ const MiniHealth = memo(function MiniHealth({
       className="mini-node-health"
       data-ping-state={ping.loadState ?? "ready"}
       title={
-        ping.simulated === true
-          ? "模拟数据：该探测点没有 monitor 上报的真实延迟"
-          : pingError && (ping.lastValue != null || ping.loss != null)
+        pingError && (ping.lastValue != null || ping.loss != null)
             ? "首页 Ping 刷新失败，显示上次数据"
             : undefined
       }
@@ -404,7 +401,6 @@ const MiniHealth = memo(function MiniHealth({
           <span className="mini-node-health-label">
             <Clock3 size={12} strokeWidth={2} />
             延迟
-            {ping.simulated === true && <SimulatedPingBadge compact />}
           </span>
           <strong className="mini-node-health-value tabular" style={{ color: latencyColor }}>
             {ping.lastValue != null ? (

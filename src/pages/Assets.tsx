@@ -392,7 +392,7 @@ export function Assets() {
                         >
                         <td>
                           <Link
-                            to={`/instance/${encodeURIComponent(detail.uuid)}`}
+                            to={`/node/${encodeURIComponent(detail.uuid)}`}
                             className="assets-node-link"
                             title={detail.name}
                           >
@@ -473,7 +473,7 @@ export function Assets() {
                     >
                       <div className="cost-summary-detail-head">
                         <Link
-                          to={`/instance/${encodeURIComponent(detail.uuid)}`}
+                          to={`/node/${encodeURIComponent(detail.uuid)}`}
                           className="cost-summary-detail-name"
                         >
                           <Flag region={detail.region} size={12} />

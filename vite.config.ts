@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:9911",
+        target: process.env.MONITOR_HUB || "http://127.0.0.1:9911",
         changeOrigin: true,
         ws: true,
       },

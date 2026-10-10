@@ -8,7 +8,6 @@ import { HealthBucketTooltip } from "./HealthBucketTooltip";
 import { LatencyBars } from "./LatencyBars";
 import { PingLineSwitcher } from "./PingLineSwitcher";
 import { QualityBars } from "./QualityBars";
-import { SimulatedPingBadge } from "./SimulatedPingBadge";
 import { formatHealthBucketTooltip } from "./pingBucketText";
 
 type MultiPingStatusDensity = "large" | "compact";
@@ -35,7 +34,6 @@ const MultiPingMetricRow = memo(function MultiPingMetricRow({
   const isLoading = line.loadState === "pending";
   const isError = line.loadState === "error";
   const isUnassigned = line.isAssigned === false;
-  const isSimulated = line.simulated === true;
   const staleError = isError && (line.lastValue != null || line.loss != null);
   // monitor 公开 Ping 历史里的 probes 包含该节点真正分配的任务。
   const latencyLabel = isUnassigned
@@ -84,7 +82,7 @@ const MultiPingMetricRow = memo(function MultiPingMetricRow({
       title={
         isUnassigned
           ? `${line.taskName} · monitor 后台未将此任务分配给该节点`
-          : `${line.taskName}${isSimulated ? " · 模拟数据" : ""} · 延迟 ${latencyLabel} · 丢包 ${lossLabel}${
+          : `${line.taskName} · 延迟 ${latencyLabel} · 丢包 ${lossLabel}${
               staleError ? " · 刷新失败，显示上次数据" : ""
             }`
       }
@@ -100,7 +98,6 @@ const MultiPingMetricRow = memo(function MultiPingMetricRow({
             {/* 线路名就是切换按钮：点开给这一行换条线路（本机生效，见 PingLineSwitcher）。 */}
             <PingLineSwitcher uuid={uuid} slot={slot} taskName={line.taskName} />
             {isUnassigned && <span className="multi-ping-unassigned">未分配</span>}
-            {isSimulated && <SimulatedPingBadge />}
           </span>
         )}
         <strong

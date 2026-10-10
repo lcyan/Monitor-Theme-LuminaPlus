@@ -22,8 +22,6 @@ import type { PingLineOverrides } from "@/utils/pingLineOverrides";
 import { resolvePingSampleCounts } from "@/utils/pingMetrics";
 import {
   invertHomepagePingTaskBindings,
-  resolveVisibleHomepagePingTaskIds,
-  type HomepageMultiPingNodeTaskIds,
   type HomepagePingTaskBindings,
 } from "@/utils/pingTasks";
 
@@ -443,50 +441,6 @@ let activeConsumers = 0;
 // HMR dispose 后置真:阻止 in-flight 请求的 finally 恢复逻辑在旧模块实例上复活轮询。
 let pingPollingDisposed = false;
 const pingListeners = new Map<string, Set<Listener>>();
-const simulatedLineCountListeners = new Set<Listener>();
-let displayPreferredTaskIds: number[] = [];
-let displayNodeTaskIds: HomepageMultiPingNodeTaskIds = {};
-let displayVisibleUuids = new Set<string>();
-let autoSimulatedLineCount = 1;
-
-export function countVisibleHomepagePingLines(
-  linesByNode: ReadonlyMap<string, HomepagePingLine[]>,
-  preferredTaskIds: number[],
-  nodeTaskIds: HomepageMultiPingNodeTaskIds,
-  visibleUuids: ReadonlySet<string>,
-) {
-  let maxCount = 1;
-  for (const [uuid, lines] of linesByNode) {
-    if (!visibleUuids.has(uuid)) continue;
-    const visibleIds = resolveVisibleHomepagePingTaskIds(
-      uuid,
-      lines.map((line) => line.taskId),
-      preferredTaskIds,
-      nodeTaskIds,
-    );
-    const visibleIdSet = new Set(visibleIds);
-    const count = lines.filter((line) =>
-      visibleIdSet.has(line.taskId) &&
-      line.isAssigned !== false &&
-      !(line.loadState === "pending" && line.lastValue == null && line.loss == null)
-    ).length;
-    maxCount = Math.max(maxCount, count);
-  }
-  return maxCount;
-}
-
-function updateAutoSimulatedLineCount() {
-  const next = countVisibleHomepagePingLines(
-    pingOverviewState.multiLines,
-    displayPreferredTaskIds,
-    displayNodeTaskIds,
-    displayVisibleUuids,
-  );
-  if (next === autoSimulatedLineCount) return;
-  autoSimulatedLineCount = next;
-  for (const listener of simulatedLineCountListeners) listener();
-}
-
 function setPingOverviewStatus(
   status: PingOverviewLoadState,
   isRefreshing: boolean,
@@ -805,7 +759,6 @@ function commitPingOverview(
     if (taskNamesChanged) {
       for (const listener of pingTaskNameListeners) listener();
     }
-    updateAutoSimulatedLineCount();
   }
 
   setPingOverviewStatus(nextStatus, nextIsRefreshing);
@@ -982,7 +935,7 @@ function getPingLinesSnapshot(uuid: string) {
   return pingOverviewState.multiLines.get(uuid) ?? EMPTY_PING_LINES;
 }
 
-export function useHomepagePingOverview(displayedNodeUuids?: string[]) {
+export function useHomepagePingOverview() {
   const { data: me } = useAuth();
   const visibleUuids = useVisibleNodeUuids(me?.logged_in === true);
   const themeSettings = useThemeSettings();
@@ -1000,13 +953,6 @@ export function useHomepagePingOverview(displayedNodeUuids?: string[]) {
   const requestedBindings = themeSettings.homepagePingBindings;
   const requestedDefaultTaskId = themeSettings.homepageDefaultPingTaskId;
   const hasRequestedVisiblePing = effectiveUuids.length > 0;
-
-  useLayoutEffect(() => {
-    displayPreferredTaskIds = themeSettings.homepageMultiPingTaskIds;
-    displayNodeTaskIds = themeSettings.homepageMultiPingNodeTaskIds;
-    displayVisibleUuids = new Set(displayedNodeUuids ?? effectiveUuids);
-    updateAutoSimulatedLineCount();
-  }, [displayedNodeUuids, effectiveUuids, themeSettings.homepageMultiPingTaskIds, themeSettings.homepageMultiPingNodeTaskIds]);
 
   useLayoutEffect(() => {
     if (!themeSettings.isReady) return;
@@ -1104,19 +1050,6 @@ function resolveOfflineSince(offlineSince?: number | null): number | null {
     : null;
 }
 
-export function useAutoSimulatedPingLineCount(enabled = true) {
-  const subscribe = useCallback((listener: Listener) => {
-    if (!enabled) return () => undefined;
-    simulatedLineCountListeners.add(listener);
-    return () => { simulatedLineCountListeners.delete(listener); };
-  }, [enabled]);
-  const getSnapshot = useCallback(
-    () => enabled ? autoSimulatedLineCount : 1,
-    [enabled],
-  );
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
-
 export function buildPingBuckets(
   ping: Pick<PingOverviewItem, "samples" | "metricIntervalMs">,
   count?: number,
@@ -1154,7 +1087,7 @@ export function buildPingBuckets(
     totals[bucketIndex] += sampleCount;
     losts[bucketIndex] += sampleLost;
     // 聚合点的 value 已由 metric 适配层恢复为“成功样本均值”，这里按 valid count
-    // 加权；旧接口/模拟数据没有 count，仍等价于单样本累加。
+    // 加权；旧接口没有 count，仍等价于单样本累加。
     if (sample.value >= 0 && sampleValid > 0) {
       positiveSums[bucketIndex] += sample.value * sampleValid;
       positiveCounts[bucketIndex] += sampleValid;

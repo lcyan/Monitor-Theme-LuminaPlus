@@ -1,4 +1,4 @@
-import { getExpireDaysRemaining, LONG_TERM_EXPIRE_DAYS } from "@/utils/format";
+import { resolveExpireDaysRemaining, LONG_TERM_EXPIRE_DAYS } from "@/utils/format";
 import { clamp, toHsl } from "@/utils/hsl";
 
 const EXPIRE_FULL_DAYS = 180;
@@ -26,8 +26,12 @@ function expireHeatColor(daysRemaining: number): string {
   return toHsl(50 + 94 * t, 76 - 10 * t, 52 - 4 * t);
 }
 
-export function getExpireTextColor(iso: string | null | undefined, now = Date.now()): string {
-  const daysRemaining = getExpireDaysRemaining(iso, now);
+export function getExpireTextColor(
+  iso: string | null | undefined,
+  now = Date.now(),
+  serverDays?: number | null,
+): string {
+  const daysRemaining = resolveExpireDaysRemaining(iso, serverDays, now);
   if (daysRemaining == null) return "var(--text-tertiary)";
   return expireHeatColor(daysRemaining);
 }

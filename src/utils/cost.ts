@@ -450,7 +450,7 @@ export function calculateCostSummary(
   const details: CostSummaryDetail[] = [];
   const ignored = buildNodeIdentitySet(ignoredNodes);
   for (const node of nodes as CostNode[]) {
-    const name = node.name || node.display_name || node.remark || node.uuid;
+    const name = node.name || node.display_name || node.public_remark || node.uuid;
     const cycleDays = billingCycleDays(node.billing_cycle);
     // 溢价以人民币直接记录、不依赖价格与汇率,免费/汇率缺失节点照样计入 premiumTotalCny,
     // 不能因价格校验不过就静默丢掉;它不参与 remaining/monthly/totalCny。

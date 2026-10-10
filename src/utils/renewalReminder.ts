@@ -1,6 +1,6 @@
 import type { NodeInfo } from "@/types/models";
 import { formatRenewalPrice } from "@/utils/billing";
-import { getExpireDaysRemaining, resolveExpireTimestamp } from "@/utils/format";
+import { resolveExpireDaysRemaining, resolveExpireTimestamp } from "@/utils/format";
 
 const DAY_MS = 86_400_000;
 
@@ -19,6 +19,7 @@ export type RenewalReminderSource = Pick<
   | "billing_cycle"
   | "auto_renewal"
   | "expired_at"
+  | "expires_in"
 > & {
   online?: boolean | null;
 };
@@ -70,7 +71,7 @@ export function getRenewalReminders(
     if (expiresAt == null) continue;
 
     // 与节点卡、列表和资产页共用同一套向下取整口径，避免同屏出现 2 天/3 天。
-    const daysRemaining = getExpireDaysRemaining(expiresAt, now);
+    const daysRemaining = resolveExpireDaysRemaining(node.expired_at, node.expires_in, now);
     if (daysRemaining == null) continue;
     if (daysRemaining > warningDays) continue;
 

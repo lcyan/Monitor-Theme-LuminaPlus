@@ -852,15 +852,26 @@ let retainCount = 0;
 let stopTimer: number | null = null;
 let liveStatusTimer: number | null = null;
 let nodeInfoTimer: number | null = null;
+let visibilityListener: (() => void) | null = null;
 
 function ensureStarted() {
   if (started) return;
   started = true;
 
   ensureScrollTrackingStarted();
+  visibilityListener = () => {
+    if (document.hidden) {
+      liveStatusController?.abort();
+      nodeInfoController?.abort();
+      return;
+    }
+    void bootstrap();
+  };
+  document.addEventListener("visibilitychange", visibilityListener);
   void bootstrap();
   // 实时指标与节点信息使用独立轮询节奏。
   liveStatusTimer = window.setInterval(() => {
+    if (document.hidden) return;
     if (!hydrated) {
       if (bootstrapSkipTicks > 0) {
         bootstrapSkipTicks -= 1;
@@ -872,6 +883,7 @@ function ensureStarted() {
     void refreshLatestStatus();
   }, LIVE_STATUS_REFRESH_INTERVAL_MS);
   nodeInfoTimer = window.setInterval(() => {
+    if (document.hidden) return;
     void syncNodeInfo().catch(() => {});
   }, NODE_INFO_REFRESH_INTERVAL_MS);
 }
@@ -906,6 +918,10 @@ function stopStore() {
   liveStatusController = null;
   nodeInfoController?.abort();
   nodeInfoController = null;
+  if (visibilityListener) {
+    document.removeEventListener("visibilitychange", visibilityListener);
+    visibilityListener = null;
+  }
   if (liveStatusTimer != null) {
     window.clearInterval(liveStatusTimer);
     liveStatusTimer = null;

@@ -63,6 +63,7 @@ export interface LoadMetricSeries {
 function emptyLoadRecord(client: string, time: string): LoadRecord {
   return {
     cpu: 0,
+    cpu_max: 0,
     gpu: 0,
     ram: 0,
     ram_total: 0,
@@ -74,6 +75,8 @@ function emptyLoadRecord(client: string, time: string): LoadRecord {
     disk_total: 0,
     net_in: 0,
     net_out: 0,
+    net_in_max: 0,
+    net_out_max: 0,
     net_total_up: 0,
     net_total_down: 0,
     process: 0,

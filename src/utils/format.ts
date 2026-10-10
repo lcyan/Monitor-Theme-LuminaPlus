@@ -164,6 +164,16 @@ export function getExpireDaysRemaining(
   return expireDay - localDayIndex(now);
 }
 
+export function resolveExpireDaysRemaining(
+  iso: string | number | null | undefined,
+  serverDays: number | null | undefined,
+  now = Date.now(),
+): number | null {
+  return typeof serverDays === "number" && Number.isFinite(serverDays)
+    ? Math.trunc(serverDays)
+    : getExpireDaysRemaining(iso, now);
+}
+
 function resolveExpireTone(days: number | null | undefined): ExpireTone {
   if (days == null || !Number.isFinite(days)) return "none";
   if (days > LONG_TERM_EXPIRE_DAYS) return "long";
@@ -175,8 +185,9 @@ function resolveExpireTone(days: number | null | undefined): ExpireTone {
 export function formatExpireDays(
   iso: string | null | undefined,
   now = Date.now(),
+  serverDays?: number | null,
 ): { value: string; unit: string; tone: ExpireTone } {
-  const days = getExpireDaysRemaining(iso, now);
+  const days = resolveExpireDaysRemaining(iso, serverDays, now);
   const tone = resolveExpireTone(days);
   if (days == null) return { value: "—", unit: "", tone };
   if (tone === "long") return { value: "长期", unit: "", tone };

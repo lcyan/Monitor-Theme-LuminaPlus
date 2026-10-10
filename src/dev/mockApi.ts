@@ -52,7 +52,7 @@ interface MockNode {
   day_tx: number;
   ipv4: string;
   ipv6: string;
-  remark: string;
+  public_remark: string;
 }
 
 interface NodeSeed {
@@ -158,7 +158,7 @@ function buildNodes(): MockNode[] {
       day_tx: Math.round(seed.netTx * 3_600),
       ipv4: `203.0.113.${11 + index * 10}`,
       ipv6: `2001:db8::${11 + index * 10}`,
-      remark: "Monitor LuminaPlus 本地预览节点",
+      public_remark: "Monitor LuminaPlus 本地预览节点",
     };
   });
 }
@@ -282,11 +282,6 @@ export function installDevMockApi() {
     if (url.pathname === "/api/nodes") {
       return json({ nodes: buildNodes(), admin: adminMode });
     }
-    if (url.pathname === "/api/ping-tasks") {
-      if (!adminMode) return json({ message: "unauthorized" }, { status: 401 });
-      return json({ tasks: pingTasks });
-    }
-
     const match = url.pathname.match(/^\/api\/nodes\/(\d+)\/metrics$/);
     if (match) {
       const node = buildNodes().find((item) => item.id === Number(match[1]));

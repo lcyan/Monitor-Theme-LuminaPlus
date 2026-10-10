@@ -42,7 +42,6 @@ import {
 import { IpStackBadges } from "./IpStackBadges";
 import { HealthBucketTooltip } from "./HealthBucketTooltip";
 import { MultiPingStatus } from "./MultiPingStatus";
-import { SimulatedPingBadge } from "./SimulatedPingBadge";
 import { formatHealthBucketTooltip } from "./pingBucketText";
 import { clsx } from "clsx";
 import type { NodeInfo, NodeMetrics, PingOverviewBucket, PingOverviewItem, TrafficTrendSample } from "@/types/models";
@@ -215,7 +214,7 @@ function NodeCardHeader({
         <div className="server-card-title-row">
           <Flag region={node.region} size={15} />
           <Link
-            to={`/instance/${encodeURIComponent(node.uuid)}`}
+            to={`/node/${encodeURIComponent(node.uuid)}`}
             className="server-card-title-link"
             title={node.name}
           >
@@ -236,7 +235,7 @@ function NodeCardHeader({
       <div className="server-card-actions">
         {showTodayTraffic && <NodeTodayTrafficPopover uuid={node.uuid} />}
         <Link
-          to={`/instance/${encodeURIComponent(node.uuid)}`}
+            to={`/node/${encodeURIComponent(node.uuid)}`}
           className="server-card-detail-link"
           title={detailLabels.title}
           aria-label={detailLabels.ariaLabel}
@@ -473,15 +472,12 @@ const NodeHealthSection = memo(function NodeHealthSection({
           <div className="server-health-label">
             <Clock3 size={13} strokeWidth={2} />
             <span>延迟</span>
-            {ping.simulated === true && <SimulatedPingBadge />}
           </div>
           <span
             className="server-health-value tabular"
             style={{ color: latencyColor }}
             title={
-              ping.simulated === true
-                ? "模拟数据：该探测点没有 monitor 上报的真实延迟"
-                : pingError && ping.lastValue != null
+              pingError && ping.lastValue != null
                   ? "首页 Ping 刷新失败，显示上次数据"
                   : undefined
             }
@@ -520,15 +516,12 @@ const NodeHealthSection = memo(function NodeHealthSection({
           <div className="server-health-label">
             <Unplug size={13} strokeWidth={2} />
             <span>丢包率</span>
-            {ping.simulated === true && <SimulatedPingBadge />}
           </div>
           <span
             className="server-health-value tabular"
             style={{ color: lossColor }}
             title={
-              ping.simulated === true
-                ? "模拟数据：该探测点没有 monitor 上报的真实延迟"
-                : pingError && ping.loss != null
+              pingError && ping.loss != null
                   ? "首页 Ping 刷新失败，显示上次数据"
                   : undefined
             }

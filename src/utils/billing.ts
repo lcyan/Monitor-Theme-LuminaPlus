@@ -1,29 +1,17 @@
 import { getExpireDaysRemaining, LONG_TERM_EXPIRE_DAYS } from "@/utils/format";
 
-const INT_PRICE_FORMATTER = new Intl.NumberFormat("zh-CN", {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 2,
-});
-const DECIMAL_PRICE_FORMATTER = new Intl.NumberFormat("zh-CN", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
-function formatPriceNumber(value: number) {
-  return (Number.isInteger(value) ? INT_PRICE_FORMATTER : DECIMAL_PRICE_FORMATTER).format(value);
-}
-
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  USD: "$",
-  CNY: "¥",
-  EUR: "€",
-  GBP: "£",
-  JPY: "¥",
-};
-
-function formatCurrency(value: string) {
-  const currency = value?.trim() || "CNY";
-  return CURRENCY_SYMBOLS[currency.toUpperCase()] ?? currency;
+function formatCurrencyAmount(value: number, currencyValue: string) {
+  const currency = currencyValue?.trim() || "CNY";
+  try {
+    return new Intl.NumberFormat("zh-CN", {
+      style: "currency",
+      currency: currency.toUpperCase(),
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    // 旧版 hub 可能保存了符号或其他非法代码,不能让 Intl 抛错导致卡片消失。
+    return `${currency} ${value.toFixed(2)}`;
+  }
 }
 
 function isLongTermExpire(value: string | number | null | undefined) {
@@ -118,6 +106,14 @@ export function normalizeBillingCycle(
     // numeric <= 0(如 0)落到下面的标签兜底分支。
   }
 
+  const monthMatch = /^(\d+)m$/i.exec(raw);
+  if (monthMatch) {
+    const months = Number(monthMatch[1]);
+    if (Number.isInteger(months) && months >= 1 && months <= 1200) {
+      return { kind: "days", days: months * 30 };
+    }
+  }
+
   const word = classifyBillingCycleWord(raw.toLowerCase());
   switch (word?.kind) {
     case "month":
@@ -169,7 +165,7 @@ export function formatRenewalPrice({
   if (price === 0) return isLongTermExpire(expired_at) ? "免费" : null;
   if (price < 0) return null;
 
-  const symbol = formatCurrency(currency);
+  const amount = formatCurrencyAmount(price, currency);
   const cycle = formatBillingCycle(billing_cycle);
-  return `${symbol}${formatPriceNumber(price)}/${cycle}`;
+  return `${amount}/${cycle}`;
 }

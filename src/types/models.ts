@@ -57,6 +57,8 @@ export const NodeInfoSchema = z
     auto_renewal: looseBool.default(false),
     currency: looseString.default(""),
     expired_at: z.union([z.string(), z.number()]).nullish().transform((v) => (v == null ? "" : String(v))),
+    expires_in: z.number().nullish(),
+    last_seen_ago: z.number().nullish(),
     tags: looseString.default(""),
     public_remark: looseString.default(""),
     traffic_limit: looseNumber.default(0),
@@ -120,8 +122,6 @@ export interface ThemeSettings {
   enableHomepageMultiPing?: boolean;
   homepageMultiPingTaskIds?: number[];
   homepageMultiPingNodeTaskIds?: Record<string, number[]>;
-  fakePingForUnbound?: boolean;
-  fakePingLineCount?: "auto" | number;
   enableHomeHeaderAutoHide?: boolean;
   homeHeaderVisibleSeconds?: number;
   showHomeOverview?: boolean;
@@ -186,6 +186,7 @@ export const PublicConfigSchema = z
     record_preserve_time: z.number().default(0),
     ping_record_preserve_time: z.number().default(0),
     metric_retention_days: z.number().default(0),
+    history_days: z.number().default(0),
     custom_head: z.string().default(""),
     custom_body: z.string().default(""),
     theme_settings: z.record(z.string(), z.unknown()).default({}),
@@ -220,6 +221,7 @@ export type Me = z.output<typeof MeSchema>;
 export const LoadRecordSchema = z
   .object({
     cpu: z.number().default(0),
+    cpu_max: z.number().default(0),
     gpu: z.number().default(0),
     ram: z.number().default(0),
     ram_total: z.number().default(0),
@@ -231,6 +233,9 @@ export const LoadRecordSchema = z
     disk_total: z.number().default(0),
     net_in: z.number().default(0),
     net_out: z.number().default(0),
+    net_in_max: z.number().default(0),
+    net_out_max: z.number().default(0),
+    minutes: z.number().optional(),
     net_total_up: z.number().default(0),
     net_total_down: z.number().default(0),
     process: z.number().default(0),
@@ -329,12 +334,7 @@ export type PingOverviewTaskLoadState = "pending" | "ready" | "error";
 export interface PingOverviewItem {
   client: string;
   isAssigned: boolean;
-  /**
-   * 前端生成的模拟数据(见 utils/fakePing),不是 monitor 上报的真实延迟。
-   * 只有开启「未绑定探测点显示模拟延迟」后才会出现,必须和真实数据区分展示。
-   */
-  simulated?: boolean;
-  /** 当前任务本轮请求状态；模拟 Ping 不设置此字段。 */
+  /** 当前任务本轮请求状态。 */
   loadState?: PingOverviewTaskLoadState;
   lastValue: number | null;
   /** metric API 聚合桶的真实宽度；旧 records 接口没有该字段。 */

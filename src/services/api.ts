@@ -32,6 +32,7 @@ interface MonitorMe {
   github?: boolean;
   site_name?: string;
   public_page?: boolean;
+  history_days?: number;
 }
 
 interface MonitorMetrics {
@@ -62,6 +63,7 @@ interface MonitorNode {
   online?: boolean;
   country?: string;
   last_seen?: number;
+  last_seen_ago?: number | null;
   metrics?: MonitorMetrics | null;
   os?: string;
   kernel?: string;
@@ -76,6 +78,7 @@ interface MonitorNode {
   currency?: string;
   billing_cycle?: string;
   expires_at?: string | null;
+  expires_in?: number | null;
   traffic_limit?: number;
   traffic_mode?: string;
   total_rx?: number;
@@ -89,6 +92,7 @@ interface MonitorNode {
   ipv4?: string;
   ipv6?: string;
   remark?: string;
+  public_remark?: string;
 }
 
 interface MonitorMetricPoint {
@@ -98,6 +102,10 @@ interface MonitorMetricPoint {
   disk_used?: number;
   net_rx?: number;
   net_tx?: number;
+  cpu_max?: number;
+  net_rx_max?: number;
+  net_tx_max?: number;
+  minutes?: number;
 }
 
 interface MonitorPingPoint {
@@ -112,6 +120,7 @@ interface MonitorHistory {
   ping?: MonitorPingPoint[];
   probes?: Record<string, string>;
   loss?: Record<string, number>;
+  step?: number;
 }
 
 interface PingOverviewResponse {
@@ -170,16 +179,25 @@ async function requestJson<T>(path: string, options?: ApiCallOptions): Promise<T
     options?.signal,
   );
   if (!response.ok) {
-    const detail = (await response.text()).trim();
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    const detail = contentType.includes("text/plain") ? (await response.text()).trim() : "";
     throw new ApiRequestError(detail || `Request failed: ${response.status}`, response.status, path);
   }
-  return response.json() as Promise<T>;
+  try {
+    return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new ApiRequestError("接口返回了无效 JSON", response.status, path);
+    }
+    throw error;
+  }
 }
 
 let cachedNodes: MonitorNode[] = [];
 let cachedAt = 0;
 let socket: WebSocket | null = null;
 let reconnectTimer: number | null = null;
+let socketVisibilityListener: (() => void) | null = null;
 
 function acceptSnapshot(payload: unknown) {
   if (!payload || typeof payload !== "object") return false;
@@ -193,8 +211,32 @@ function acceptSnapshot(payload: unknown) {
   return true;
 }
 
+function stopLiveSocket() {
+  if (reconnectTimer != null) {
+    window.clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  const current = socket;
+  socket = null;
+  if (current) {
+    current.onclose = null;
+    current.close();
+  }
+}
+
 function ensureLiveSocket() {
-  if (typeof window === "undefined" || typeof WebSocket === "undefined" || socket) return;
+  if (typeof window === "undefined" || typeof WebSocket === "undefined") return;
+  if (!socketVisibilityListener) {
+    socketVisibilityListener = () => {
+      if (document.hidden) {
+        stopLiveSocket();
+      } else {
+        ensureLiveSocket();
+      }
+    };
+    document.addEventListener("visibilitychange", socketVisibilityListener);
+  }
+  if (document.hidden || socket) return;
   if (
     import.meta.env.DEV &&
     typeof sessionStorage !== "undefined" &&
@@ -205,19 +247,32 @@ function ensureLiveSocket() {
     if (socket) return;
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     try {
-      const next = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
+      const gzip = typeof DecompressionStream === "function" ? "?gzip" : "";
+      const next = new WebSocket(`${protocol}//${window.location.host}/api/ws${gzip}`);
       socket = next;
+      let decoded = Promise.resolve();
       next.onmessage = (event) => {
-        try {
-          acceptSnapshot(JSON.parse(String(event.data)));
-        } catch {
-          // A broken frame is ignored; the next two-second snapshot can recover.
-        }
+        decoded = decoded
+          .then(async () => {
+            const text =
+              typeof event.data === "string"
+                ? event.data
+                : await new Response(
+                    event.data.stream().pipeThrough(new DecompressionStream("gzip")),
+                  ).text();
+            if (next.readyState !== WebSocket.OPEN) return;
+            if (!acceptSnapshot(JSON.parse(text))) throw new Error("Invalid monitor snapshot");
+          })
+          .catch(() => {
+            // A broken frame is ignored; the next two-second snapshot can recover.
+          });
       };
       next.onerror = () => next.close();
       next.onclose = () => {
         if (socket === next) socket = null;
-        if (reconnectTimer == null) reconnectTimer = window.setTimeout(connect, 5_000);
+        if (!document.hidden && reconnectTimer == null) {
+          reconnectTimer = window.setTimeout(connect, 5_000);
+        }
       };
     } catch {
       if (reconnectTimer == null) reconnectTimer = window.setTimeout(connect, 5_000);
@@ -253,7 +308,9 @@ function describeThemeSettingsReadError(error: unknown) {
     }
     return `主题配置接口返回 HTTP ${error.status}`;
   }
-  if (error instanceof SyntaxError) return "主题配置接口返回了无效数据，请检查 monitor 版本或反向代理";
+  if (error instanceof ApiRequestError && error.message === "接口返回了无效 JSON") {
+    return "主题配置接口返回了无效数据，请检查 monitor 版本或反向代理";
+  }
   if (error instanceof Error && error.message === "主题配置接口返回的内容不是 JSON 对象") {
     return error.message;
   }
@@ -283,8 +340,10 @@ export function monitorNodeToInfo(node: MonitorNode): NodeInfo {
     auto_renewal: false,
     currency: string(node.currency),
     expired_at: string(node.expires_at),
+    expires_in: node.expires_in,
+    last_seen_ago: node.last_seen_ago,
     tags: "",
-    public_remark: string(node.remark),
+    public_remark: string(node.public_remark),
     traffic_limit: number(node.traffic_limit),
     traffic_limit_type: string(node.traffic_mode) || "sum",
     ipv4: string(node.ipv4),
@@ -298,9 +357,9 @@ export function monitorNodeToRealtime(node: MonitorNode): Record<string, unknown
   const metrics = node.metrics;
   const monthUp = number(node.month_tx, number(metrics?.month_tx));
   const monthDown = number(node.month_rx, number(metrics?.month_rx));
-  if (!node.online || !metrics) {
+  if (node.online === false || !metrics) {
     return {
-      online: false,
+      online: node.online === true ? true : false,
       network: { up: 0, down: 0, totalUp: monthUp, totalDown: monthDown },
       ram: { total: number(node.mem_total), used: 0 },
       swap: { total: number(node.swap_total), used: 0 },
@@ -513,7 +572,8 @@ export async function getPublic(options?: ApiCallOptions): Promise<PublicConfig>
     record_enabled: true,
     record_preserve_time: 0,
     ping_record_preserve_time: 0,
-    metric_retention_days: 7,
+    metric_retention_days: number(me.history_days, 7),
+    history_days: number(me.history_days, 7),
     custom_head: "",
     custom_body: "",
     theme_settings: themeSettings,
@@ -558,6 +618,7 @@ export async function getLoadRecords(
   const payload = await getHistory(uuid, hours, "metrics", options);
   const records: LoadRecord[] = (payload.metrics ?? []).map((point) => ({
     cpu: number(point.cpu),
+    cpu_max: number(point.cpu_max),
     gpu: 0,
     ram: number(point.mem_used),
     ram_total: 0,
@@ -569,6 +630,9 @@ export async function getLoadRecords(
     disk_total: 0,
     net_in: number(point.net_rx),
     net_out: number(point.net_tx),
+    net_in_max: number(point.net_rx_max),
+    net_out_max: number(point.net_tx_max),
+    minutes: number(point.minutes),
     net_total_up: 0,
     net_total_down: 0,
     process: 0,
@@ -588,7 +652,8 @@ export async function getLoadRecords(
     count: records.length,
     records,
     ...range(hours),
-    intervalSeconds: inferIntervalSeconds((payload.metrics ?? []).map((point) => point.ts)),
+    intervalSeconds:
+      number(payload.step) || inferIntervalSeconds((payload.metrics ?? []).map((point) => point.ts)),
   };
 }
 
@@ -698,7 +763,7 @@ export function normalizePingHistory(uuid: string, hours: number, payload: Monit
     (payload.probes != null ? Object.keys(payload.probes).map(Number) : records.map((record) => record.task_id))
       .filter((id) => Number.isSafeInteger(id) && id > 0),
   );
-  const interval = inferIntervalSeconds((payload.ping ?? []).map((point) => point.ts));
+  const interval = number(payload.step) || inferIntervalSeconds((payload.ping ?? []).map((point) => point.ts));
   const tasks = [...ids]
     .sort((left, right) => left - right)
     .map((id) => ({
@@ -725,19 +790,27 @@ export async function getPingRecords(
 }
 
 export async function getAdminPingTasks(options?: ApiCallOptions): Promise<PingTask[]> {
-  const payload = await requestJson<{
-    tasks?: Array<{ id: number; name?: string; target?: string; interval?: number; nodes?: number[] }>;
-  }>("/api/ping-tasks", options);
-  return (payload.tasks ?? []).map((task) => ({
-    id: task.id,
-    interval: number(task.interval, 60),
-    name: string(task.name) || `探测 #${task.id}`,
-    loss: 0,
-    clients: (task.nodes ?? []).map(String),
-    type: "tcp",
-    target: string(task.target),
-    weight: task.id,
-  }));
+  const nodes = await loadMonitorNodes(options, true);
+  const results = await mapBatches(
+    nodes.map((node) => String(node.id)),
+    4,
+    (uuid) => getPingRecords(uuid, 1, options),
+    options?.signal,
+  );
+  const tasks = new Map<number, PingTask>();
+  results.forEach((result, index) => {
+    if (result.status !== "fulfilled") return;
+    const uuid = String(nodes[index]?.id ?? "");
+    for (const task of result.value.tasks) {
+      const previous = tasks.get(task.id);
+      tasks.set(task.id, {
+        ...task,
+        clients: [...new Set([...(previous?.clients ?? []), uuid])],
+        weight: previous?.weight ?? task.id,
+      });
+    }
+  });
+  return [...tasks.values()].sort((left, right) => left.weight - right.weight || left.id - right.id);
 }
 
 export async function saveThemeSettings(

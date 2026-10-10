@@ -26,7 +26,6 @@ import { formatHealthBucketTooltip } from "./pingBucketText";
 import { resolveTouchBucketIndex, TOUCH_BUCKET_HOLD_MS } from "./touchBucketPick";
 import { MetricDetailTip, useMetricDetailTip } from "./MetricDetailTip";
 import { MultiPingStatus } from "./MultiPingStatus";
-import { SimulatedPingBadge } from "./SimulatedPingBadge";
 import {
   formatCompactExpire,
   formatCompactPercent,
@@ -370,7 +369,7 @@ function CompactNodeHeader({
         <div className="compact-node-title-row">
           <Flag region={node.region} size={15} />
           <Link
-            to={`/instance/${encodeURIComponent(node.uuid)}`}
+            to={`/node/${encodeURIComponent(node.uuid)}`}
             className="compact-node-title"
             title={node.name}
           >
@@ -383,7 +382,7 @@ function CompactNodeHeader({
           <NodeTodayTrafficPopover uuid={node.uuid} size={14} />
         )}
         <Link
-          to={`/instance/${encodeURIComponent(node.uuid)}`}
+            to={`/node/${encodeURIComponent(node.uuid)}`}
           className="compact-node-detail-link"
           title={detailLabels.title}
           aria-label={detailLabels.ariaLabel}
@@ -674,9 +673,7 @@ const CompactNodeHealth = memo(function CompactNodeHealth({
       className="compact-node-bottom"
       data-ping-state={ping.loadState ?? "ready"}
       title={
-        ping.simulated === true
-          ? "模拟数据：该探测点没有 monitor 上报的真实延迟"
-          : pingError && (ping.lastValue != null || ping.loss != null)
+        pingError && (ping.lastValue != null || ping.loss != null)
             ? "首页 Ping 刷新失败，显示上次数据"
             : undefined
       }
@@ -684,7 +681,6 @@ const CompactNodeHealth = memo(function CompactNodeHealth({
       <CompactHealthItem
         icon={<Clock3 size={12} />}
         label="延迟"
-        badge={ping.simulated === true ? <SimulatedPingBadge compact /> : undefined}
         value={ping.lastValue != null ? Math.round(ping.lastValue).toString() : emptyText}
         unit={ping.lastValue != null ? "ms" : undefined}
         color={latencyColor}

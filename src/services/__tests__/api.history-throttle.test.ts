@@ -83,6 +83,43 @@ describe("monitor history requests", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps hub text errors but hides proxy HTML responses", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(
+        new Response("查询历史的请求太多，稍后再试", {
+          status: 401,
+          headers: { "content-type": "text/plain; charset=utf-8" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("<html>nginx 502</html>", {
+          status: 502,
+          headers: { "content-type": "text/html" },
+        }),
+      ));
+
+    await expect(getPingRecords("9", 1)).rejects.toMatchObject({
+      message: "查询历史的请求太多，稍后再试",
+      status: 401,
+    });
+    await expect(getPingRecords("10", 1)).rejects.toMatchObject({
+      message: "Request failed: 502",
+      status: 502,
+    });
+  });
+
+  it("classifies a successful non-JSON response as invalid JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("<html>login</html>", { status: 200 })),
+    );
+
+    await expect(getPingRecords("11", 1)).rejects.toMatchObject({
+      message: "接口返回了无效 JSON",
+      status: 200,
+    });
+  });
+
   it("gives up on a refusal that repeats, and reuses the shared response for every task of one node", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

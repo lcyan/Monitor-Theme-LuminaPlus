@@ -49,7 +49,6 @@ export type AmbientEffect =
   | "confetti"
   | "fireworks";
 
-export const MAX_FIXED_FAKE_PING_LINES = 24;
 
 export const AMBIENT_EFFECTS: readonly AmbientEffect[] = [
   "sakura",
@@ -73,8 +72,6 @@ export interface ResolvedThemeSettings {
   enableHomepageMultiPing: boolean;
   homepageMultiPingTaskIds: number[];
   homepageMultiPingNodeTaskIds: HomepageMultiPingNodeTaskIds;
-  fakePingForUnbound: boolean;
-  fakePingLineCount: "auto" | number;
   enableHomeHeaderAutoHide: boolean;
   homeHeaderVisibleSeconds: number;
   showHomeOverview: boolean;
@@ -144,8 +141,6 @@ export const DEFAULT_THEME_SETTINGS: ResolvedThemeSettings = {
   enableHomepageMultiPing: true,
   homepageMultiPingTaskIds: [],
   homepageMultiPingNodeTaskIds: {},
-  fakePingForUnbound: false,
-  fakePingLineCount: "auto",
   enableHomeHeaderAutoHide: false,
   homeHeaderVisibleSeconds: 10,
   showHomeOverview: true,
@@ -342,15 +337,6 @@ export function normalizeThemeSettings(
     homepageMultiPingNodeTaskIds: normalizeHomepageMultiPingNodeTaskIds(
       settings?.homepageMultiPingNodeTaskIds,
     ),
-    // 默认关闭(需手动开启):给访客展示的是模拟数据,必须由站长显式决定。
-    fakePingForUnbound: settings?.fakePingForUnbound === true,
-    fakePingLineCount:
-      typeof settings?.fakePingLineCount === "number" &&
-      Number.isFinite(settings.fakePingLineCount) &&
-      Number.isInteger(settings.fakePingLineCount) &&
-      settings.fakePingLineCount > 0
-        ? Math.min(MAX_FIXED_FAKE_PING_LINES, settings.fakePingLineCount)
-        : "auto",
     enableHomeHeaderAutoHide: settings?.enableHomeHeaderAutoHide === true,
     homeHeaderVisibleSeconds: normalizeHomeHeaderVisibleSeconds(
       settings?.homeHeaderVisibleSeconds,

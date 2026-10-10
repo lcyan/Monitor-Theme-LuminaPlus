@@ -1,4 +1,5 @@
-import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { gunzipSync } from "node:zlib";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -27,4 +28,10 @@ const archive = spawnSync("tar", ["czf", output, "dist", "theme.json", "preview.
 });
 rmSync(packageRoot, { force: true, recursive: true });
 if (archive.status !== 0) process.exit(archive.status ?? 1);
+try {
+  gunzipSync(readFileSync(output));
+} catch {
+  console.error("Generated theme.tar.gz is not a complete gzip stream.");
+  process.exit(1);
+}
 console.log(`Wrote ${output}`);

@@ -2,7 +2,27 @@
   "name": "LuminaPlus",
   "short": "LuminaPlus",
   "description": "为 monitor 打造的高信息密度状态主题",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "author": "lcyan",
-  "url": "https://github.com/lcyan/Monitor-Theme-LuminaPlus"
+  "url": "https://github.com/lcyan/Monitor-Theme-LuminaPlus",
+  "config": [
+    { "type": "title", "label": "首页" },
+    { "key": "showHomeOverview", "type": "boolean", "label": "显示首页概览", "default": true },
+    { "key": "showGroupTabs", "type": "boolean", "label": "显示节点分组", "default": true },
+    { "key": "showRegionBar", "type": "boolean", "label": "显示地区筛选", "default": true },
+    { "key": "enableHomeSort", "type": "boolean", "label": "允许访客排序", "default": true },
+    { "key": "homeSortField", "type": "select", "label": "默认排序", "default": "default",
+      "options": [
+        { "value": "default", "label": "后台顺序" },
+        { "value": "name", "label": "名称" },
+        { "value": "speed", "label": "实时速度" },
+        { "value": "traffic", "label": "流量" },
+        { "value": "price", "label": "价格" }
+      ] },
+    { "type": "title", "label": "费用与背景" },
+    { "key": "showCostsToGuests", "type": "boolean", "label": "向访客显示费用", "default": true },
+    { "key": "enableBackgroundImage", "type": "boolean", "label": "启用背景", "default": true },
+    { "key": "enableAmbientEffect", "type": "boolean", "label": "启用环境动效", "default": false },
+    { "key": "showConnections", "type": "boolean", "label": "显示连接数", "default": false }
+  ]
 }

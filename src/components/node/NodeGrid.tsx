@@ -459,7 +459,14 @@ export function NodeGrid() {
     let trafficDown = 0;
     let netUp = 0;
     let netDown = 0;
-    for (const node of visibleNodes) {
+    const overviewNodes = visibleNodes.filter((node) => {
+      const groupMatches =
+        selectedGroup === HOME_ALL_GROUP || getHomeGroupLabel(node.group) === selectedGroup;
+      const regionMatches =
+        selectedRegion === HOME_ALL_REGION || getDisplayRegionCode(node.region) === selectedRegion;
+      return groupMatches && regionMatches;
+    });
+    for (const node of overviewNodes) {
       if (node.online === true) onlineNodes += 1;
       else if (node.online === false) offlineNodes += 1;
       trafficUp += node.trafficUp;
@@ -469,7 +476,7 @@ export function NodeGrid() {
     }
 
     return {
-      totalNodes: visibleNodes.length,
+      totalNodes: overviewNodes.length,
       onlineNodes,
       offlineNodes,
       trafficUp,
@@ -477,7 +484,7 @@ export function NodeGrid() {
       netUp,
       netDown,
     };
-  }, [visibleNodes]);
+  }, [selectedGroup, selectedRegion, visibleNodes]);
   const showHomeOverview = themeSettings.isReady && themeSettings.showHomeOverview;
   const hasNodes = visibleMeta.length > 0;
   // 「资产概览」把每月花多少钱亮给所有访客，单独一个开关，不跟着整排总览走。
@@ -569,11 +576,7 @@ export function NodeGrid() {
         : groupFilteredNodes.filter((node) => getDisplayRegionCode(node.region) === selectedRegion),
     [groupFilteredNodes, selectedRegion],
   );
-  const displayedNodeUuids = useMemo(
-    () => filteredNodes.map((node) => node.uuid),
-    [filteredNodes],
-  );
-  useHomepagePingOverview(displayedNodeUuids);
+  useHomepagePingOverview();
   // 排序在分组筛选之后。离线节点按设置置顶/沉底;实时网速走防抖(键平滑+滞回+5s 重排)。
   const orderedNodes = useHomeNodeOrder({
     offlineFirst: themeSettings.isReady && themeSettings.offlineNodesFirst,

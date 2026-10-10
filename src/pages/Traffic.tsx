@@ -274,7 +274,7 @@ export function Traffic() {
                       <tr data-empty={!stat.hasSamples || undefined}>
                         <td>
                           <Link
-                            to={`/instance/${encodeURIComponent(node.uuid)}`}
+                            to={`/node/${encodeURIComponent(node.uuid)}`}
                             className="assets-node-link"
                             title={node.name}
                           >
@@ -330,7 +330,7 @@ export function Traffic() {
               return (
                 <article className="traffic-node-card" key={node.uuid} data-empty={!stat.hasSamples || undefined}>
                   <header className="traffic-node-card-head">
-                    <Link to={`/instance/${encodeURIComponent(node.uuid)}`} className="assets-node-link">
+                            <Link to={`/node/${encodeURIComponent(node.uuid)}`} className="assets-node-link">
                       <Flag region={node.region} size={12} />
                       <span>{node.name}</span>
                     </Link>

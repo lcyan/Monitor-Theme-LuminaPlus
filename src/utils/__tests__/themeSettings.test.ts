@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_THEME_SETTINGS,
-  MAX_FIXED_FAKE_PING_LINES,
   canViewCosts,
   normalizeThemeSettings,
   shouldShowAdminEntry,
@@ -168,24 +167,6 @@ describe("normalizeThemeSettings", () => {
     expect(normalizeThemeSettings({ homeSortField: "speed" } as never).homeSortDirection).toBe("desc");
     // 非法字段回落 default。
     expect(normalizeThemeSettings({ homeSortField: "nope" } as never).homeSortField).toBe("default");
-  });
-
-  it("keeps fake ping off unless explicitly enabled", () => {
-    expect(normalizeThemeSettings({}).fakePingForUnbound).toBe(false);
-    expect(normalizeThemeSettings({ fakePingForUnbound: true }).fakePingForUnbound).toBe(true);
-    // 非布尔真值不算显式开启。
-    expect(
-      normalizeThemeSettings({ fakePingForUnbound: "yes" } as never).fakePingForUnbound,
-    ).toBe(false);
-  });
-
-  it("defaults simulated line count to auto and bounds fixed counts", () => {
-    expect(normalizeThemeSettings({}).fakePingLineCount).toBe("auto");
-    expect(normalizeThemeSettings({ fakePingLineCount: 6 }).fakePingLineCount).toBe(6);
-    expect(normalizeThemeSettings({ fakePingLineCount: 50 }).fakePingLineCount).toBe(MAX_FIXED_FAKE_PING_LINES);
-    for (const value of [0, -1, 2.5, "6", null]) {
-      expect(normalizeThemeSettings({ fakePingLineCount: value } as never).fakePingLineCount).toBe("auto");
-    }
   });
 
   it("keeps timed home header hiding opt-in and normalizes its duration", () => {

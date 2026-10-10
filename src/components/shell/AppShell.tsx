@@ -26,7 +26,7 @@ export function AppShell() {
     normalizedPath === "/" ||
     normalizedPath === "/assets" ||
     normalizedPath === "/traffic" ||
-    normalizedPath.startsWith("/instance/");
+    normalizedPath.startsWith("/instance/") || normalizedPath.startsWith("/node/");
   const isCheckingAccess =
     isDataRoute &&
     (publicConfig.isPending ||

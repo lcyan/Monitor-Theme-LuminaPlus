@@ -29,7 +29,8 @@ const node = {
   month_tx: 600,
   ipv4: "203.0.113.7",
   ipv6: "2001:db8::7",
-  remark: "edge",
+  remark: "private",
+  public_remark: "edge",
   metrics: {
     uptime: 99,
     cpu: 37.5,
@@ -60,7 +61,9 @@ describe("monitor node adapter", () => {
       virtualization: "KVM",
       traffic_limit_type: "sum",
       ipv4: "203.0.113.7",
+      public_remark: "edge",
     });
+    expect(monitorNodeToInfo(node).public_remark).not.toBe("private");
   });
 
   it("maps rates, resources and monthly traffic without swapping directions", () => {

@@ -12,7 +12,6 @@ import { speedRateColor } from "@/utils/metricTone";
 import { CanvasStrip, fillRoundedRect, safeCanvasColor } from "./CanvasStrip";
 import { LatencyBars } from "./LatencyBars";
 import { HealthBucketTooltip } from "./HealthBucketTooltip";
-import { SimulatedPingBadge } from "./SimulatedPingBadge";
 import { formatOsLabel, joinTagTitle, nodeDetailLinkLabels } from "./nodeCardShared";
 import { formatHealthBucketTooltip } from "./pingBucketText";
 import type { PingOverviewTaskLoadState } from "@/types/models";
@@ -174,7 +173,6 @@ function ListLatency({
   loadState,
   hasRealHomepagePingBinding,
   pingIsAssigned,
-  simulated,
   latencyColor,
   buckets,
   redrawKey,
@@ -183,7 +181,6 @@ function ListLatency({
   loadState: PingOverviewTaskLoadState | undefined;
   hasRealHomepagePingBinding: boolean;
   pingIsAssigned: boolean;
-  simulated: boolean;
   latencyColor: string;
   buckets: Parameters<typeof LatencyBars>[0]["buckets"];
   redrawKey: string;
@@ -204,16 +201,15 @@ function ListLatency({
     <div
       className="node-list-latency"
       data-ping-state={state}
-      aria-label={`网络延迟 ${status.ariaText}${simulated ? "，模拟数据" : ""}`}
+      aria-label={`网络延迟 ${status.ariaText}`}
     >
       <span
         className="node-list-latency-value tabular"
         style={{ color: latencyColor }}
-        title={simulated ? "模拟数据：该探测点没有 monitor 上报的真实延迟" : status.title}
+        title={status.title}
       >
         {status.visibleText}
         {latency != null && <small>ms</small>}
-        {simulated && <SimulatedPingBadge compact />}
       </span>
       <span className="node-list-latency-bars">
         <LatencyBars
@@ -276,7 +272,7 @@ const NodeRow = memo(function NodeRow({ uuid, showCosts }: { uuid: string; showC
     `上行 ${upRate.value}${upRate.unit}`,
     `下行 ${downRate.value}${downRate.unit}`,
     `流量使用 ${usedPct}`,
-    `网络延迟 ${listPingStatus.ariaText}${ping.simulated === true ? "，模拟数据" : ""}`,
+    `网络延迟 ${listPingStatus.ariaText}`,
     node.online === true ? "在线" : node.online === false ? "离线" : "状态未知",
     `运行 ${uptime.value}${uptime.unit}`,
     `到期 ${expire.value}${expire.unit}`,
@@ -285,7 +281,7 @@ const NodeRow = memo(function NodeRow({ uuid, showCosts }: { uuid: string; showC
 
   return (
     <Link
-      to={`/instance/${encodeURIComponent(uuid)}`}
+      to={`/node/${encodeURIComponent(uuid)}`}
       className={clsx("node-list-row", isOffline && "is-offline")}
       title={detailLabels.title}
       aria-label={rowLabel}
@@ -382,7 +378,6 @@ const NodeRow = memo(function NodeRow({ uuid, showCosts }: { uuid: string; showC
           loadState={ping.loadState}
           hasRealHomepagePingBinding={hasRealHomepagePingBinding}
           pingIsAssigned={ping.isAssigned}
-          simulated={ping.simulated === true}
           latencyColor={latencyColor}
           buckets={pingBuckets}
           redrawKey={redrawKey}
