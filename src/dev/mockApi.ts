@@ -235,7 +235,11 @@ function defaultThemeSettings() {
 }
 
 export function installDevMockApi() {
-  sessionStorage.setItem("monitor-luminaplus:dev-mock", "1");
+  try {
+    sessionStorage.setItem("monitor-luminaplus:dev-mock", "1");
+  } catch {
+    // 浏览器禁用站点存储时仍允许开发 mock 页面启动。
+  }
   const configKey = "monitor-luminaplus:dev-theme-config";
   let themeSettings = defaultThemeSettings() as Record<string, unknown>;
   try {

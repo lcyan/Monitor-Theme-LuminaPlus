@@ -1,7 +1,36 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getLoadRecords, normalizePingHistory } from "@/services/api";
+import { getLoadRecords, getNodes, getNodesLatestStatus, normalizePingHistory } from "@/services/api";
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe("monitor node snapshot cache", () => {
+  it("does not let an older concurrent response replace a newer snapshot", async () => {
+    let resolveFirst!: (response: Response) => void;
+    let resolveSecond!: (response: Response) => void;
+    let requestCount = 0;
+    const firstResponse = new Promise<Response>((resolve) => { resolveFirst = resolve; });
+    const secondResponse = new Promise<Response>((resolve) => { resolveSecond = resolve; });
+    const fetchMock = vi.fn(() => {
+      requestCount += 1;
+      return requestCount === 1 ? firstResponse : secondResponse;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const olderRequest = getNodes();
+    await Promise.resolve();
+    const newerRequest = getNodes();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    resolveSecond(new Response(JSON.stringify({ nodes: [{ id: 2, name: "new" }] }), { status: 200 }));
+    await newerRequest;
+    resolveFirst(new Response(JSON.stringify({ nodes: [{ id: 1, name: "old" }] }), { status: 200 }));
+    await olderRequest;
+
+    await expect(getNodesLatestStatus()).resolves.toEqual({
+      "2": expect.objectContaining({ online: false }),
+    });
+  });
+});
 
 describe("monitor Ping history adapter", () => {
   it("preserves probe labels, inferred intervals and packet loss", () => {
@@ -65,6 +94,31 @@ describe("monitor Ping history adapter", () => {
 });
 
 describe("monitor resource history adapter", () => {
+  it("maps resource fields added by monitor 1.4.1", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      metrics: [{
+        ts: 1_700_000_000,
+        swap_used: 128,
+        tcp: 12,
+        udp: 4,
+        procs: 88,
+      }],
+    }), { status: 200 })));
+
+    const result = await getLoadRecords("9", 4);
+    expect(result.records[0]).toMatchObject({
+      swap: 128,
+      connections: 12,
+      connections_udp: 4,
+      process: 88,
+      history_capabilities: {
+        swap: true,
+        connections: true,
+        process: true,
+      },
+    });
+  });
+
   it("marks fields omitted by monitor so charts do not draw fake zero values", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       metrics: [{ ts: 1_700_000_000, cpu: 12, mem_used: 512, disk_used: 2048, net_rx: 20, net_tx: 10 }],

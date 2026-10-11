@@ -50,6 +50,21 @@ describe("monitor theme settings", () => {
     await expect(loadThemeSettings()).rejects.toThrow("主题配置接口返回的内容不是 JSON 对象");
   });
 
+  it("explains when the theme config response is not valid JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === "/api/me"
+        ? new Response(JSON.stringify({ authed: false, public_page: true }))
+        : new Response("<html>proxy error</html>", {
+            status: 200,
+            headers: { "Content-Type": "text/html" },
+          }),
+    ));
+
+    await expect(getPublic()).resolves.toMatchObject({
+      theme_settings_error: "主题配置接口返回了无效数据，请检查 monitor 版本或反向代理",
+    });
+  });
+
   it("keeps site metadata when the theme config endpoint is unavailable", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>
       String(input) === "/api/me"

@@ -14,7 +14,11 @@ async function bootstrap() {
       const { installDevMockApi } = await import("./dev/mockApi");
       installDevMockApi();
     } else {
-      sessionStorage.removeItem("monitor-luminaplus:dev-mock");
+      try {
+        sessionStorage.removeItem("monitor-luminaplus:dev-mock");
+      } catch {
+        // 浏览器禁用站点存储时跳过开发 mock 状态清理。
+      }
     }
   }
 

@@ -252,6 +252,10 @@ const PING_REQUEST_TIMEOUT_MS = 35_000;
 const PING_CACHE_STORAGE_KEY = "monitor:luminaplus:homepage-ping:v1";
 const PING_CACHE_TTL_MS = 5 * 60_000;
 
+export function isPingOverviewCacheFresh(savedAt: number, now = Date.now()) {
+  return savedAt <= now && now - savedAt <= PING_CACHE_TTL_MS;
+}
+
 interface PingOverviewCachePayload {
   version: 1;
   savedAt: number;
@@ -533,7 +537,7 @@ function readPingOverviewCache(
       parsed.assignmentKey !== assignmentKey ||
       typeof parsed.savedAt !== "number" ||
       !Number.isFinite(parsed.savedAt) ||
-      Date.now() - parsed.savedAt > PING_CACHE_TTL_MS ||
+      !isPingOverviewCacheFresh(parsed.savedAt) ||
       !Array.isArray(parsed.singleItems) ||
       !Array.isArray(parsed.multiLines)
     ) {

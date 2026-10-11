@@ -100,8 +100,12 @@ interface MonitorMetricPoint {
   cpu?: number;
   mem_used?: number;
   disk_used?: number;
+  swap_used?: number;
   net_rx?: number;
   net_tx?: number;
+  tcp?: number;
+  udp?: number;
+  procs?: number;
   cpu_max?: number;
   net_rx_max?: number;
   net_tx_max?: number;
@@ -198,8 +202,18 @@ let cachedAt = 0;
 let socket: WebSocket | null = null;
 let reconnectTimer: number | null = null;
 let socketVisibilityListener: (() => void) | null = null;
+let nextHttpSnapshotRequestId = 0;
+let acceptedHttpSnapshotRequestId = 0;
+let websocketSnapshotCount = 0;
 
-function acceptSnapshot(payload: unknown) {
+function acceptSnapshot(payload: unknown, httpRequestId?: number, websocketCountAtRequest?: number) {
+  if (
+    httpRequestId != null &&
+    (httpRequestId < acceptedHttpSnapshotRequestId ||
+      (websocketCountAtRequest != null && websocketCountAtRequest < websocketSnapshotCount))
+  ) {
+    return false;
+  }
   if (!payload || typeof payload !== "object") return false;
   const nodes = (payload as { nodes?: unknown }).nodes;
   if (!Array.isArray(nodes)) return false;
@@ -208,6 +222,7 @@ function acceptSnapshot(payload: unknown) {
       Boolean(node) && typeof node === "object" && Number.isInteger((node as MonitorNode).id),
   );
   cachedAt = Date.now();
+  if (httpRequestId != null) acceptedHttpSnapshotRequestId = httpRequestId;
   return true;
 }
 
@@ -239,8 +254,13 @@ function ensureLiveSocket() {
   if (document.hidden || socket) return;
   if (
     import.meta.env.DEV &&
-    typeof sessionStorage !== "undefined" &&
-    sessionStorage.getItem(DEV_MOCK_SESSION_KEY) === "1"
+    (() => {
+      try {
+        return typeof sessionStorage !== "undefined" && sessionStorage.getItem(DEV_MOCK_SESSION_KEY) === "1";
+      } catch {
+        return false;
+      }
+    })()
   ) return;
   const connect = () => {
     reconnectTimer = null;
@@ -261,7 +281,9 @@ function ensureLiveSocket() {
                     event.data.stream().pipeThrough(new DecompressionStream("gzip")),
                   ).text();
             if (next.readyState !== WebSocket.OPEN) return;
-            if (!acceptSnapshot(JSON.parse(text))) throw new Error("Invalid monitor snapshot");
+            const accepted = acceptSnapshot(JSON.parse(text));
+            if (!accepted) throw new Error("Invalid monitor snapshot");
+            websocketSnapshotCount += 1;
           })
           .catch(() => {
             // A broken frame is ignored; the next two-second snapshot can recover.
@@ -286,8 +308,10 @@ async function loadMonitorNodes(options?: ApiCallOptions, allowFreshCache = true
   if (allowFreshCache && cachedNodes.length > 0 && Date.now() - cachedAt < 7_000) {
     return cachedNodes;
   }
+  const httpRequestId = ++nextHttpSnapshotRequestId;
+  const websocketCountAtRequest = websocketSnapshotCount;
   const payload = await requestJson<{ nodes?: MonitorNode[] }>("/api/nodes", options);
-  acceptSnapshot(payload);
+  acceptSnapshot(payload, httpRequestId, websocketCountAtRequest);
   return cachedNodes;
 }
 
@@ -302,14 +326,14 @@ export async function loadThemeSettings(options?: ApiCallOptions): Promise<Recor
 }
 
 function describeThemeSettingsReadError(error: unknown) {
+  if (error instanceof ApiRequestError && error.message === "接口返回了无效 JSON") {
+    return "主题配置接口返回了无效数据，请检查 monitor 版本或反向代理";
+  }
   if (error instanceof ApiRequestError) {
     if (error.status === 404 || error.status === 405) {
       return `monitor 未提供主题配置接口（HTTP ${error.status}），请升级 monitor`;
     }
     return `主题配置接口返回 HTTP ${error.status}`;
-  }
-  if (error instanceof ApiRequestError && error.message === "接口返回了无效 JSON") {
-    return "主题配置接口返回了无效数据，请检查 monitor 版本或反向代理";
   }
   if (error instanceof Error && error.message === "主题配置接口返回的内容不是 JSON 对象") {
     return error.message;
@@ -622,7 +646,7 @@ export async function getLoadRecords(
     gpu: 0,
     ram: number(point.mem_used),
     ram_total: 0,
-    swap: 0,
+    swap: number(point.swap_used),
     swap_total: 0,
     load: 0,
     temp: 0,
@@ -635,16 +659,16 @@ export async function getLoadRecords(
     minutes: number(point.minutes),
     net_total_up: 0,
     net_total_down: 0,
-    process: 0,
-    connections: 0,
-    connections_udp: 0,
+    process: number(point.procs),
+    connections: number(point.tcp),
+    connections_udp: number(point.udp),
     time: point.ts,
     client: uuid,
     history_capabilities: {
-      swap: false,
+      swap: point.swap_used !== undefined,
       trafficTotals: false,
-      connections: false,
-      process: false,
+      connections: point.tcp !== undefined || point.udp !== undefined,
+      process: point.procs !== undefined,
       load: false,
     },
   }));

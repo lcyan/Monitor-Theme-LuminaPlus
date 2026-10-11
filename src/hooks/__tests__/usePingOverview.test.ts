@@ -3,12 +3,19 @@ import {
   buildBackendPingOverviewMap,
   buildPingBuckets,
   buildPingOverviewItems,
+  isPingOverviewCacheFresh,
   selectPersistablePingOverview,
 } from "@/hooks/usePingOverview";
 
 const MINUTE_MS = 60_000;
 const NOW = Date.UTC(2026, 6, 17, 11, 2);
 const WINDOW_START = NOW - 60 * MINUTE_MS;
+
+describe("homepage ping cache freshness", () => {
+  it("rejects a cache timestamp from the future", () => {
+    expect(isPingOverviewCacheFresh(11_000, 10_000)).toBe(false);
+  });
+});
 
 function aggregateSamples(intervalMinutes: number) {
   const alignedStart = Date.UTC(2026, 6, 17, 10, 0);
