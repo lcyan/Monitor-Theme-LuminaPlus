@@ -20,6 +20,7 @@ import { setPingLineOverrides } from "@/services/pingLineOverrideStore";
 import { resolveVisibleHomepagePingTaskIds } from "@/utils/pingTasks";
 import {
   EMPTY_PING_LINE_OVERRIDES,
+  pickKnownPingLineOverrides,
   resolveNodePingLineTaskIds,
   switchPingLine,
 } from "@/utils/pingLineOverrides";
@@ -111,7 +112,16 @@ function PingLineMenu({
     homepageMultiPingTaskIds,
     homepageMultiPingNodeTaskIds,
   );
-  const displayed = resolveNodePingLineTaskIds(nodeDefault, overrides);
+  // 与卡片渲染同口径:指向已撤销任务的覆盖先过滤掉,菜单高亮和后续换线都以过滤后的基准算,
+  // 不会高亮一条卡片根本没有在画的线路。
+  const knownTaskIds = new Set<number>([
+    ...nodeDefault,
+    ...realLines.map((line) => line.taskId),
+  ]);
+  const displayed = resolveNodePingLineTaskIds(
+    nodeDefault,
+    pickKnownPingLineOverrides(overrides, knownTaskIds),
+  );
   const currentTaskId = displayed[slot];
   // 有数据的线路才列（后台没分配的任务换过去只会是一行「未分配」）；
   // 正在显示的几条哪怕暂时没数据也列上，否则找不到当前选中项，也没法把它换回来。

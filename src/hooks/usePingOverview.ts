@@ -248,7 +248,17 @@ function resolvePingAssignmentKey(
 }
 
 // 限制首页多节点历史请求的整条调用链，避免一次刷新长期占住轮询。
-const PING_REQUEST_TIMEOUT_MS = 35_000;
+// 但预算必须按批次数扩展：mapBatches 是 4 并发串行推进，单节点最坏
+// （3 次重试 × 12s 超时 + 退避）≈ 37.6s，固定 35s 会把「个别节点慢」放大成
+// 整页 error——逐节点降级（failedEntityIds）对链路级超时完全无效。
+const PING_CHAIN_TIMEOUT_PER_BATCH_MS = 40_000;
+const PING_REQUEST_CONCURRENCY = 4;
+
+export function pingChainTimeoutMs(nodeCount: number): number {
+  const batches = Math.max(1, Math.ceil(nodeCount / PING_REQUEST_CONCURRENCY));
+  return batches * PING_CHAIN_TIMEOUT_PER_BATCH_MS;
+}
+
 const PING_CACHE_STORAGE_KEY = "monitor:luminaplus:homepage-ping:v1";
 const PING_CACHE_TTL_MS = 5 * 60_000;
 
@@ -303,7 +313,8 @@ export async function buildBackendPingOverviewMap(
 ): Promise<PingOverviewMapResult> {
   const uuids = normalizeVisibleUuids(clientUuids);
   const preferredSingleTaskByClient = invertHomepagePingTaskBindings(bindings);
-  const assignmentKey = resolvePingAssignmentKey(uuids, bindings);
+  // defaultTaskId 必须进键:单线路选择依赖它,缓存读写键也按它对齐(读取方传了,漏了就永不命中)。
+  const assignmentKey = resolvePingAssignmentKey(uuids, bindings, defaultTaskId);
   if (uuids.length === 0) {
     return {
       assignmentKey,
@@ -320,7 +331,7 @@ export async function buildBackendPingOverviewMap(
       signal: requestSignal,
       entityIds: uuids,
     }),
-    PING_REQUEST_TIMEOUT_MS,
+    pingChainTimeoutMs(uuids.length),
     signal,
   );
   const itemsByTask = new Map<number, Map<string, PingOverviewItem>>();
@@ -432,6 +443,7 @@ function equalTaskNames(
 }
 
 const pingTaskNameListeners = new Set<Listener>();
+const pingStatusListeners = new Set<Listener>();
 let pingOverviewStatus: PingOverviewStatusSnapshot = EMPTY_PING_STATUS;
 let scheduledVisibleUuids: string[] = [];
 let scheduledVisibleKey = "";
@@ -456,6 +468,7 @@ function setPingOverviewStatus(
     return;
   }
   pingOverviewStatus = { status, isRefreshing };
+  for (const listener of pingStatusListeners) listener();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -999,6 +1012,18 @@ export function useNodePingOverview(
     () => (uuid && enabled ? getPingSnapshot(uuid) : EMPTY_PING),
     [enabled, uuid],
   );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/** 首页 ping 概览链路的整体状态(idle/loading/ready/error);供回退分支区分「还在抓」与「抓完仍无线路」。 */
+export function usePingOverviewStatus(): PingOverviewStatusSnapshot {
+  const subscribe = useCallback((cb: Listener) => {
+    pingStatusListeners.add(cb);
+    return () => {
+      pingStatusListeners.delete(cb);
+    };
+  }, []);
+  const getSnapshot = useCallback(() => pingOverviewStatus, []);
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 

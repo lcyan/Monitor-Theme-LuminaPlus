@@ -1,4 +1,6 @@
+import { useEffect, useRef } from "react";
 import { Outlet, useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { Lock } from "lucide-react";
 import { BackgroundLayer } from "./BackgroundLayer";
 import { AmbientEffectLayer } from "./AmbientEffectLayer";
@@ -7,7 +9,7 @@ import { SiteFooter } from "./SiteFooter";
 import { Spinner } from "@/components/ui/Spinner";
 import { useAppearance } from "@/hooks/useAppearance";
 import { useAuth } from "@/hooks/useAuth";
-import { usePublicConfig } from "@/hooks/usePublicConfig";
+import { shouldInvalidatePublicConfig, usePublicConfig } from "@/hooks/usePublicConfig";
 import { useSiteMetadata } from "@/hooks/useSiteMetadata";
 import { useMetricColorsSync } from "@/hooks/useMetricColors";
 import { useNodeStoreStatus } from "@/hooks/useNode";
@@ -21,6 +23,18 @@ export function AppShell() {
   const { pathname, search } = useLocation();
   const publicConfig = usePublicConfig();
   const auth = useAuth();
+  const queryClient = useQueryClient();
+  // 私有站点在新标签页登录后返回:["me"] 的 focus 重拉解除门禁,但 ["public"] 里按匿名
+  // 跳过的主题配置没有内建触发器——登录态翻转时补一次失效,否则停留首页期间永远按空配置渲染。
+  const loggedIn = auth.data?.logged_in === true;
+  const prevLoggedInRef = useRef(loggedIn);
+  useEffect(() => {
+    const wasLoggedIn = prevLoggedInRef.current;
+    prevLoggedInRef.current = loggedIn;
+    if (shouldInvalidatePublicConfig(wasLoggedIn, loggedIn)) {
+      void queryClient.invalidateQueries({ queryKey: ["public"] });
+    }
+  }, [loggedIn, queryClient]);
   const normalizedPath = (pathname.replace(/\/+$/, "") || "/").toLowerCase();
   const isDataRoute =
     normalizedPath === "/" ||

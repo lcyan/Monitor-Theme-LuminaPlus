@@ -81,6 +81,20 @@ export function resolveNodePingLineTaskIds(
 }
 
 /**
+ * 只保留仍指向已知任务（基础分配 ∪ 实际线路）的覆盖：访客换向后台已撤销的任务时自动回落默认。
+ * 卡片渲染与换线菜单必须共用这一个口径——菜单若用原始覆盖算「当前选中」，会高亮一条
+ * 卡片根本没有在画的线路，后续换线也都基于过期基准。
+ */
+export function pickKnownPingLineOverrides(
+  overrides: PingLineOverrides,
+  knownTaskIds: ReadonlySet<number>,
+): PingLineOverrides {
+  return Object.fromEntries(
+    Object.entries(overrides).filter(([, taskId]) => knownTaskIds.has(taskId)),
+  );
+}
+
+/**
  * 把第 `slot` 行换成 `taskId`，返回新的覆盖表。
  *
  * 选中的线路已经在别的行显示时两行互换，不会画出两行一样的线路。换回和默认一致的行会从表里

@@ -65,10 +65,17 @@ export function classifyBillingCycleWord(
     const years = { two: 2, three: 3, four: 4, five: 5 }[wordYears[1]!]!;
     return { kind: "year", years };
   }
-  const chineseYears = /^([一两二三四五])年(付)?$/.exec(normalized);
+  // 阿拉伯数字与单个汉字数字都接受:「4年」「10年」曾是漏网之鱼,被静默当 1 年摊销,
+  // 月均/总额/剩余价值全口径虚高 N 倍(「五年」反而是对的)。
+  const chineseYears = /^([一两二三四五六七八九十]|\d{1,2})年(付)?$/.exec(normalized);
   if (chineseYears) {
-    const years = { 一: 1, 两: 2, 二: 2, 三: 3, 四: 4, 五: 5 }[chineseYears[1]!]!;
-    return { kind: "year", years };
+    const raw = chineseYears[1]!;
+    const years = /^\d+$/.test(raw)
+      ? Number(raw)
+      : { 一: 1, 两: 2, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 }[raw]!;
+    if (Number.isInteger(years) && years >= 1) {
+      return { kind: "year", years };
+    }
   }
   return null;
 }

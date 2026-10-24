@@ -7,6 +7,7 @@ import { useMinuteClock } from "@/hooks/useClock";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useTodayTrafficStats } from "@/hooks/useTodayTrafficStats";
 import { useVisibleNodes } from "@/hooks/useVisibleNodes";
+import { isNodeStoreHydrating, useNodeStoreStatus } from "@/hooks/useNode";
 import { formatByteRateLabel, formatBytes } from "@/utils/format";
 import type { NodeInfo } from "@/types/models";
 import type { TodayTrafficSample, TodayTrafficStat } from "@/utils/trafficStats";
@@ -134,6 +135,8 @@ export function Traffic() {
   const now = useMinuteClock();
   const isMobileLayout = useMediaQuery(TRAFFIC_MOBILE_QUERY);
   const nodes = useVisibleNodes();
+  // 冷加载直链时节点 store 还没水合:先显示加载中,别让「暂无节点数据」终态闪出来。
+  const storeStatus = useNodeStoreStatus(true);
   const uuids = useMemo(() => nodes.map((node) => node.uuid), [nodes]);
   const trafficQuery = useTodayTrafficStats(uuids, now);
   const details = useMemo<TrafficDetail[]>(() => {
@@ -198,7 +201,11 @@ export function Traffic() {
         </button>
       </div>
 
-      {nodes.length === 0 ? (
+      {nodes.length === 0 && isNodeStoreHydrating(storeStatus) ? (
+        <div className="flex h-[40vh] items-center justify-center">
+          <Spinner size={24} />
+        </div>
+      ) : nodes.length === 0 ? (
         <div className="flex h-[40vh] flex-col items-center justify-center gap-2 text-[var(--text-tertiary)]">
           <span className="text-[15px]">暂无节点数据</span>
           <span className="text-[12px]">等待后端推送或前往管理后台添加</span>

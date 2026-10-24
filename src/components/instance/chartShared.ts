@@ -130,6 +130,19 @@ export function buildPingTimeRangeOptions(maxHours: number | null | undefined) {
   return buildHistoryRangeOptions(PING_TIME_RANGE_OPTIONS, maxHours, false);
 }
 
+/**
+ * tooltip 取值网格按视图切换:丢包率视图渲染自己的加权降采样网格(insertMetricGapSentinels
+ * 只进延迟网格,两套网格在断点处分叉),列下标对应的是它的时间格——dataRef 不跟着切,
+ * 就会读出延迟毫秒却被格式化成「丢包 x%」。丢包网格未就绪时回退延迟网格(此时图也还没画它)。
+ */
+export function resolveTooltipGrid(
+  chartMetric: "latency" | "loss",
+  latencyGrid: uPlot.AlignedData | null,
+  lossGrid: uPlot.AlignedData | null,
+): uPlot.AlignedData | null {
+  return chartMetric === "loss" && lossGrid ? lossGrid : latencyGrid;
+}
+
 const GRID_CHART_DEFAULT = { w: 320, h: 132 };
 const GRID_CHART_HEIGHT = 132;
 const WIDE_CHART_GUTTER = 96;

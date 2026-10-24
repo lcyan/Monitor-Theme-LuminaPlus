@@ -877,8 +877,14 @@ export async function getPingOverview(
   const records: PingRecord[] = [];
   const tasks = new Map<number, PingTask>();
   const clientWindowLoss: Record<string, Record<number, number>> = {};
+  let intervalSeconds: number | undefined;
   responses.forEach((result, index) => {
     if (result.status !== "fulfilled") return;
+    // 各节点 step 取最粗一档:sample-and-hold 投影宁可多铺不可留洞(见 usePingOverview)。
+    const nodeInterval = result.value.intervalSeconds;
+    if (typeof nodeInterval === "number" && nodeInterval > 0) {
+      intervalSeconds = intervalSeconds == null ? nodeInterval : Math.max(intervalSeconds, nodeInterval);
+    }
     for (const record of result.value.records) {
       if (taskId == null || record.task_id === taskId) records.push(record);
     }
@@ -904,6 +910,7 @@ export async function getPingOverview(
     failedEntityIds,
     successfulEntityIds,
     clientWindowLoss,
+    intervalSeconds,
     ...range(hours),
   };
 }

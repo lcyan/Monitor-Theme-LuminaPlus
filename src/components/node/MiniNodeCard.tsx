@@ -18,7 +18,7 @@ import { IpStackBadges } from "./IpStackBadges";
 import { NodeTodayTrafficPopover } from "./NodeTodayTrafficPopover";
 import { HealthBucketTooltip } from "./HealthBucketTooltip";
 import { MetricDetailTip, useMetricDetailTip } from "./MetricDetailTip";
-import { resolveTouchBucketIndex, TOUCH_BUCKET_HOLD_MS } from "./touchBucketPick";
+import { reduceTouchBucketSession, resolveTouchBucketIndex, TOUCH_BUCKET_HOLD_MS } from "./touchBucketPick";
 import { useNodeCardModel } from "@/hooks/useNodeCardModel";
 import { speedRateColor } from "@/utils/metricTone";
 import { supportsFineHover } from "@/utils/mediaQuery";
@@ -333,8 +333,23 @@ function MiniHealthBars({
           }
           pickIndex(event.clientX, event.currentTarget.getBoundingClientRect());
         }}
+        onPointerCancel={() => {
+          // 滚动页面时浏览器会抢走指针:这一下不是「想看数值」,气泡和长按计时直接收掉
+          // (与 CanvasStrip 的 endTouch(event,false) 同口径,收尾状态机见 touchBucketPick)。
+          const holdTimer = touchHoldTimerRef.current;
+          const hadHold = holdTimer != null;
+          if (holdTimer != null) {
+            clearTimeout(holdTimer);
+            touchHoldTimerRef.current = null;
+          }
+          const next = reduceTouchBucketSession(
+            { hoveredIndex, selectedIndex: null, holdActive: hadHold },
+            { type: "cancel" },
+          );
+          setHoveredIndex(next.hoveredIndex);
+        }}
         onPointerLeave={() => {
-          // 触屏那份有自己的收尾计时，别被这里抢先清掉。
+          // 触屏那份「按下选中」有自己的收尾（抬手计时 / pointercancel），别被这里抢先清掉。
           if (touchHoldTimerRef.current != null) return;
           setHoveredIndex(null);
         }}

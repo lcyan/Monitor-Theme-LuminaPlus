@@ -3,8 +3,10 @@ import { RotateCw } from "lucide-react";
 
 const REFRESH_THRESHOLD = 56;
 const MAX_PULL = 76;
-const IGNORED_TARGETS =
-  "input, textarea, select, [contenteditable='true'], [role='dialog'], .uplot, [data-no-pull-refresh], .metric-color-picker, .renewal-reminder-panel";
+// 可滚动弹层要整体豁免:它们 portal 到 body、多数不是 role=dialog,页面在顶部时
+// 列表内的上滑若被当成下拉手势,preventDefault 会拦掉列表自己的滚动,拉够阈值还会 reload。
+export const PULL_IGNORED_TARGETS =
+  "input, textarea, select, [contenteditable='true'], [role='dialog'], .uplot, [data-no-pull-refresh], .metric-color-picker, .renewal-reminder-panel, .instance-switcher-panel, .ping-line-menu";
 
 type PullState = "idle" | "pulling" | "ready" | "refreshing" | "offline";
 
@@ -45,7 +47,7 @@ export function PwaPullToRefresh({ active = true }: { active?: boolean }) {
     const onTouchStart = (event: TouchEvent) => {
       if (stateRef.current !== "idle" || event.touches.length !== 1 || window.scrollY > 0) return;
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest(IGNORED_TARGETS)) return;
+      if (target?.closest(PULL_IGNORED_TARGETS)) return;
       const touch = event.touches[0]!;
       startRef.current = { x: touch.clientX, y: touch.clientY };
       trackingRef.current = true;

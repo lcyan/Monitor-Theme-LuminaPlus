@@ -4,6 +4,7 @@ import {
   buildPingBuckets,
   buildPingOverviewItems,
   isPingOverviewCacheFresh,
+  pingChainTimeoutMs,
   selectPersistablePingOverview,
 } from "@/hooks/usePingOverview";
 
@@ -255,5 +256,39 @@ describe("homepage ping polling selection", () => {
       singleItems: [["node-a", expect.objectContaining({ isAssigned: false, loadState: "ready" })]],
       multiLines: [],
     });
+  });
+
+  // 缓存读写键必须一致:ensurePingOverviewStarted 用带 default 的键读,写侧若漏传 defaultTaskId,
+  // 配置默认线路后缓存永不命中,且改回未设置时会读到别的默认设置下算出的单线路数据。
+  it("includes the configured default line in the assignment key", async () => {
+    const result = await buildBackendPingOverviewMap(
+      1, ["node-a"], {}, undefined,
+      (async () => ({
+        records: [{ task_id: 2, time: NOW, value: 70, client: "node-a", count: 1, loss: 0 }],
+        tasks: [{ id: 2, name: "B", clients: ["node-a"], interval: 60, loss: 0, type: "tcp", target: "", weight: 2 }],
+        intervalSeconds: 60,
+        clientWindowLoss: {},
+      })) as never,
+      undefined,
+      2,
+    );
+    expect(result.singleItems.get("node-a")?.lastValue).toBe(70);
+    expect(result.assignmentKey.endsWith("|default:2")).toBe(true);
+  });
+});
+
+// 回归:mapBatches 是 4 并发串行推进,单节点最坏(3 次重试+退避)≈37.6s,
+// 固定 35s 的整链超时会把「个别节点慢」放大成整页 error,逐节点降级没机会生效。
+// 超时预算必须按批次数扩展。
+describe("pingChainTimeoutMs", () => {
+  it("covers the worst-case retry budget of a single batch", () => {
+    expect(pingChainTimeoutMs(1)).toBe(40_000);
+    expect(pingChainTimeoutMs(4)).toBe(40_000);
+  });
+
+  it("scales linearly with the number of 4-concurrency batches", () => {
+    expect(pingChainTimeoutMs(5)).toBe(80_000);
+    expect(pingChainTimeoutMs(9)).toBe(120_000);
+    expect(pingChainTimeoutMs(60)).toBe(600_000);
   });
 });

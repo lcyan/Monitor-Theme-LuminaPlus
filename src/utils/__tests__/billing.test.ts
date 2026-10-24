@@ -35,6 +35,17 @@ describe("formatBillingCycle", () => {
     expect(normalizeBillingCycle("biennial")).toEqual({ kind: "year", days: 730, years: 2 });
   });
 
+  // 回归:通用中文模式只认单个汉字数字,「4年」「5年」「10年」曾被静默当 1 年,
+  // 月均/总额/剩余价值全部虚高 N 倍(「五年」反而是对的)。
+  it("parses arabic-numeral multi-year cycles beyond 3 years (regression)", () => {
+    expect(normalizeBillingCycle("4年")).toEqual({ kind: "year", days: 1460, years: 4 });
+    expect(normalizeBillingCycle("5年")).toEqual({ kind: "year", days: 1825, years: 5 });
+    expect(normalizeBillingCycle("10年")).toEqual({ kind: "year", days: 3650, years: 10 });
+    expect(normalizeBillingCycle("4年付")).toEqual({ kind: "year", days: 1460, years: 4 });
+    expect(normalizeBillingCycle("五年")).toEqual({ kind: "year", days: 1825, years: 5 });
+    expect(normalizeBillingCycle("5y")).toEqual({ kind: "year", days: 1825, years: 5 });
+  });
+
   it("treats -1 as a lifetime cycle (regression)", () => {
     expect(formatBillingCycle(-1)).toBe("永久");
   });

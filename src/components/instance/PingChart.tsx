@@ -9,6 +9,7 @@ import {
   colorForSeries,
   createTimeAxisFormatter,
   getAxisColors,
+  resolveTooltipGrid,
   toChartSeconds,
   useResponsiveChartSize,
   type ChartTooltipState,
@@ -339,10 +340,12 @@ export function PingChart({
 
   useEffect(() => {
     if (chartBundle) {
-      chartRef.current = chartBundle.data;
+      // tooltip 的列下标对应"当前渲染的那套网格":丢包率视图渲染 lossChart,
+      // dataRef 不跟着切就会读出延迟毫秒再被格式化成丢包百分比(见 resolveTooltipGrid)。
+      chartRef.current = resolveTooltipGrid(chartMetric, chartBundle.data, lossChart) ?? chartBundle.data;
       lossRef.current = chartBundle.loss;
     }
-  }, [chartBundle]);
+  }, [chartBundle, chartMetric, lossChart]);
 
   const requestedXRange = useMemo(() => historyChartRangeSeconds(data), [data]);
   const coverageMeta = useMemo(() => {

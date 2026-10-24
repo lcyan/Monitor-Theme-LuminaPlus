@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getTrafficResetDisplay } from "@/utils/trafficReset";
+import { getTrafficResetDisplay, resolveResetDayOfMonth } from "@/utils/trafficReset";
 
 const local = (year: number, month: number, day: number, hour = 12) =>
   new Date(year, month - 1, day, hour).getTime();
@@ -47,5 +47,25 @@ describe("monthly traffic reset from expiry day", () => {
       expect(getTrafficResetDisplay(value, now)).toBeNull();
     }
     expect(getTrafficResetDisplay(local(2026, 11, 30), NaN)).toBeNull();
+  });
+
+  // 回归:纯日期串按 UTC 零点解析后再取本地 getDate(),UTC 以西时区会把重置日整体
+  // 偏移一天("2026-06-30" 在 UTC-5 显示「每月29日重置」)。format.ts 同类 bug 已修过,
+  // 这里必须同样按「字面那一天」取日历日。
+  describe("resolveResetDayOfMonth", () => {
+    it("reads the literal calendar day from date-only strings", () => {
+      expect(resolveResetDayOfMonth("2026-06-30")).toBe(30);
+      expect(resolveResetDayOfMonth(" 2026-01-09 ")).toBe(9);
+    });
+
+    it("falls back to the local day for datetime values and timestamps", () => {
+      expect(resolveResetDayOfMonth("2026-06-30T12:00:00Z")).toBe(new Date(Date.parse("2026-06-30T12:00:00Z")).getDate());
+      expect(resolveResetDayOfMonth(1_782_777_600_000)).toBe(new Date(1_782_777_600_000).getDate());
+    });
+
+    it("returns null for unparseable input", () => {
+      expect(resolveResetDayOfMonth("invalid")).toBeNull();
+      expect(resolveResetDayOfMonth(null)).toBeNull();
+    });
   });
 });

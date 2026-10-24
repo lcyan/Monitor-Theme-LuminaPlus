@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { shallowEqualNodeInfo } from "@/services/wsStore";
+import { NodeInfoSchema } from "@/types/models";
 import { resolveFlatConnectionsTcp, resolveTrafficTotal } from "@/services/wsStore";
 
 // 像 resolveTrafficTotals 每个 tick 那样,把一串原始累计读数喂给 resolver:把上一个显示值
@@ -55,5 +57,21 @@ describe("resolveFlatConnectionsTcp", () => {
 
   it("clamps to 0 when udp exceeds the combined count", () => {
     expect(resolveFlatConnectionsTcp({ connections: 3, connections_udp: 5 })).toBe(0);
+  });
+});
+
+// 回归:shallowEqualNodeInfo 此前不比较 expires_in,而到期展示优先采用服务端天数——
+// 跨天保持打开的页面(监控大屏)后端重算的新值会被判「未变化」整份丢弃,倒计时冻结在会话首帧。
+describe("shallowEqualNodeInfo", () => {
+  function info(expiresIn: number | null) {
+    return NodeInfoSchema.parse({ uuid: "a", name: "A", expires_in: expiresIn });
+  }
+
+  it("treats a changed expires_in as a change so the expire countdown can advance", () => {
+    expect(shallowEqualNodeInfo(info(253), info(252))).toBe(false);
+  });
+
+  it("still treats equal metadata as unchanged", () => {
+    expect(shallowEqualNodeInfo(info(253), info(253))).toBe(true);
   });
 });

@@ -200,4 +200,25 @@ describe("monitor history requests", () => {
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  // monitor ≥1.2.6 对粗窗口返回聚合点,step 声明每个点覆盖的秒数。聚合响应必须把它
+  // 透传下去,buildPingBuckets 的 sample-and-hold 投影才能把 5 分钟一个的点铺满可视桶;
+  // 丢掉它,聚合点会被当瞬时点逐格落位(首页柱状条规律性空洞)。
+  it("passes the coarsest per-node step through as intervalSeconds", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const isFiveMinute = String(input).includes("/api/nodes/7/");
+      return new Response(JSON.stringify({
+        probes: { 7: "Cloudflare" },
+        step: isFiveMinute ? 300 : 120,
+        ping: [
+          { task_id: 7, ts: 1_700_000_000, latency: 24, loss: 0 },
+          { task_id: 7, ts: 1_700_000_300, latency: 25, loss: 0 },
+        ],
+      }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getPingOverview(1, undefined, { entityIds: ["7", "8"] });
+    expect(result.intervalSeconds).toBe(300);
+  });
 });

@@ -23,7 +23,7 @@ import { formatBytes } from "@/utils/format";
 import { speedRateColor, speedRateColorFromBytes } from "@/utils/metricTone";
 import { supportsFineHover } from "@/utils/mediaQuery";
 import { formatHealthBucketTooltip } from "./pingBucketText";
-import { resolveTouchBucketIndex, TOUCH_BUCKET_HOLD_MS } from "./touchBucketPick";
+import { reduceTouchBucketSession, resolveTouchBucketIndex, TOUCH_BUCKET_HOLD_MS } from "./touchBucketPick";
 import { MetricDetailTip, useMetricDetailTip } from "./MetricDetailTip";
 import { MultiPingStatus } from "./MultiPingStatus";
 import {
@@ -271,6 +271,22 @@ function HealthBars({
         // 手指按着横向划过去时跟随；没按着不动它（触屏没有悬停）。
         if (supportsFineHover(event.pointerType) || event.buttons === 0) return;
         handleTouchPick(event.clientX);
+      }}
+      onPointerCancel={() => {
+        // 滚动页面时浏览器会抢走指针:这一下不是「想看数值」,气泡和长按计时直接收掉
+        // (与 CanvasStrip 的 endTouch(event,false) 同口径,收尾状态机见 touchBucketPick)。
+        const holdTimer = touchHoldTimerRef.current;
+        const hadHold = holdTimer != null;
+        if (holdTimer != null) {
+          clearTimeout(holdTimer);
+          touchHoldTimerRef.current = null;
+        }
+        const next = reduceTouchBucketSession(
+          { hoveredIndex, selectedIndex, holdActive: hadHold },
+          { type: "cancel" },
+        );
+        setHoveredIndex(next.hoveredIndex);
+        setSelectedIndex(next.selectedIndex);
       }}
       onKeyDown={(event) => {
         const current = selectedIndex ?? bars.length - 1;

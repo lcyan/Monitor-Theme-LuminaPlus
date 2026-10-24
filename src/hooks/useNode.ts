@@ -19,6 +19,7 @@ import {
   getStoreStatusSnapshot,
   type HomeNodeSummary,
   type NodeOnlineSummary,
+  type StoreStatusSnapshot,
 } from "@/services/wsStore";
 import type { NodeInfo, NodeMetrics, TrafficTrendSample } from "@/types/models";
 
@@ -143,4 +144,14 @@ export function useNodeStoreStatus(enabled = true) {
     getSnapshot,
     getSnapshot,
   );
+}
+
+/**
+ * 节点 store 还在水合中（首份列表没到也没报错）。页面此时不能渲染「暂无节点数据」
+ * 这类终态文案——Assets/Traffic 曾因此在冷加载直链时闪假空态，Home/Instance 都有门控。
+ */
+export function isNodeStoreHydrating(
+  status: Pick<StoreStatusSnapshot, "hydrated" | "nodeInfoError">,
+): boolean {
+  return !status.hydrated && !status.nodeInfoError;
 }

@@ -10,6 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useHourlyClock } from "@/hooks/useClock";
 import { useVisibleNodes } from "@/hooks/useVisibleNodes";
+import { isNodeStoreHydrating, useNodeStoreStatus } from "@/hooks/useNode";
 import {
   calculateCostSummary,
   formatCnyMoney,
@@ -130,6 +131,8 @@ export function Assets() {
     canViewCosts(themeSettings, me?.logged_in === true);
   const forceRateRefresh = useRef(false);
   const nodes = useVisibleNodes();
+  // 冷加载直链时节点 store 还没水合:先显示加载中,别让「暂无节点数据」终态闪出来。
+  const storeStatus = useNodeStoreStatus(true);
   // 资产详情页是风险核对入口：这里始终按真实到期数据展示，不读取首页的关闭/稍后偏好。
   const renewalReminders = useMemo(() => getRenewalReminders(nodes, now), [nodes, now]);
   const renewalByUuid = useMemo(
@@ -281,7 +284,11 @@ export function Assets() {
         </button>
       </div>
 
-      {nodes.length === 0 ? (
+      {nodes.length === 0 && isNodeStoreHydrating(storeStatus) ? (
+        <div className="flex h-[40vh] items-center justify-center">
+          <Spinner size={24} />
+        </div>
+      ) : nodes.length === 0 ? (
         <div className="flex h-[40vh] flex-col items-center justify-center gap-2 text-[var(--text-tertiary)]">
           <span className="text-[15px]">暂无节点数据</span>
           <span className="text-[12px]">等待后端推送或前往管理后台添加</span>

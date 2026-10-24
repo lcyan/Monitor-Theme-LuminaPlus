@@ -223,7 +223,8 @@ function shallowEqualMetrics(a: NodeMetrics, b: NodeMetrics) {
   );
 }
 
-function shallowEqualNodeInfo(a: NodeInfo, b: NodeInfo) {
+// 导出仅供测试断言:相等性口径直接决定 30s 元数据同步会不会把新值判成「未变化」。
+export function shallowEqualNodeInfo(a: NodeInfo, b: NodeInfo) {
   return (
     a.uuid === b.uuid &&
     a.name === b.name &&
@@ -248,6 +249,9 @@ function shallowEqualNodeInfo(a: NodeInfo, b: NodeInfo) {
     a.auto_renewal === b.auto_renewal &&
     a.currency === b.currency &&
     a.expired_at === b.expired_at &&
+    // expires_in 是后端每次重算的「剩余天数」,到期展示优先采用它;漏比会让跨天打开的
+    // 页面把新值整份丢弃,倒计时冻结在会话首帧(updated_at 才是为避免重渲染而排除的字段)。
+    a.expires_in === b.expires_in &&
     a.tags === b.tags &&
     a.public_remark === b.public_remark &&
     a.traffic_limit === b.traffic_limit &&

@@ -8,10 +8,12 @@ import {
   usePingBuckets,
   usePingTaskNames,
   useNodePingLineOverrides,
+  usePingOverviewStatus,
 } from "@/hooks/usePingOverview";
 import { useThemeSettings } from "@/hooks/useThemeSettings";
 import type {
   HomepagePingDisplayLine,
+  PingOverviewItem,
 } from "@/types/models";
 import { formatRenewalPrice } from "@/utils/billing";
 import { getExpireTextColor } from "@/utils/expireStatus";
@@ -36,8 +38,8 @@ import {
   resolveVisibleHomepagePingTaskIds,
 } from "@/utils/pingTasks";
 import {
+  pickKnownPingLineOverrides,
   resolveNodePingLineTaskIds,
-  type PingLineOverrides,
 } from "@/utils/pingLineOverrides";
 
 interface NodeCardModelOptions {
@@ -50,6 +52,36 @@ export function shouldRenderHomepagePingBars(
   pingIsAssigned: boolean,
 ) {
   return hasRealHomepagePingBinding || pingIsAssigned;
+}
+
+export type HomepagePingFallbackMode =
+  | "multi"
+  | "fallback-line"
+  | "fallback-loading"
+  | "fallback-unconfigured";
+
+/**
+ * 多线路开启时的展示决策:
+ * - 有行 → 正常多线路;
+ * - 一行都没有但后台还有分配线路 → 回退单线路,取第一条分配线路当数据源
+ *   （「按服务器单独配置」的任务全被后台撤销时走这里;单线路查询此刻被
+ *   multiPingActive 禁用,不能用 realPing）;
+ * - 连分配线路都没有 → 概览还在抓就先当「加载中」,落地后判「未配置」,
+ *   不让回退分支停在永久 pending 上。
+ */
+export function resolveHomepagePingFallback({
+  displayLineCount,
+  backendLineCount,
+  overviewSettled,
+}: {
+  displayLineCount: number;
+  backendLineCount: number;
+  overviewSettled: boolean;
+}): { mode: HomepagePingFallbackMode; hasBinding: boolean } {
+  if (displayLineCount > 0) return { mode: "multi", hasBinding: true };
+  if (backendLineCount > 0) return { mode: "fallback-line", hasBinding: true };
+  if (!overviewSettled) return { mode: "fallback-loading", hasBinding: true };
+  return { mode: "fallback-unconfigured", hasBinding: false };
 }
 
 export function useNodeCardModel(
@@ -75,35 +107,14 @@ export function useNodeCardModel(
     isHomepageMultiPingConfigured(homepageMultiPingTaskIds);
   const realPing = useNodePingOverview(uuid, !multiPingActive);
   const realPingLines = useNodePingOverviewLines(uuid, multiPingActive);
-  const hasRealHomepagePingBinding = useMemo(
-    () => multiPingActive || realPing.isAssigned || realPing.loadState === "error",
-    [multiPingActive, realPing.isAssigned, realPing.loadState],
-  );
   const now = useHourlyClock();
-  const ping = realPing;
-  // 状态跟随每条任务数据进入 Store,不再订阅全局 isRefreshing。这样后台轮询开始/结束
-  // 时不会让所有节点卡片仅因一个布尔值变化而重渲染。
-  const pingLoading =
-    hasRealHomepagePingBinding && (ping.loadState ?? "pending") === "pending";
-  const pingError =
-    hasRealHomepagePingBinding && ping.loadState === "error";
-  const shouldRenderPingBars = shouldRenderHomepagePingBars(
-    hasRealHomepagePingBinding,
-    ping.isAssigned,
-  );
+  // 与 usePingBuckets 同理:窗口按分钟前移,不依赖数据刷新才滑动。
+  const bucketNow = useMinuteClock(multiPingActive);
+  const localLineOverrides = useNodePingLineOverrides(uuid);
   // 掉线后延迟/丢包柱按最后一次上报截断，之后的格子涂红。用 `updatedAt` 而不是
   // 「发现掉线的时刻」：前者是节点真正停止上报的时间，红色从那里开始才对得上。
   const offlineSince =
     metrics && metrics.online === false && metrics.updatedAt > 0 ? metrics.updatedAt : null;
-  const pingBuckets = usePingBuckets(
-    ping,
-    pingBucketCount,
-    !multiPingActive,
-    offlineSince,
-  );
-  // 与 usePingBuckets 同理:窗口按分钟前移,不依赖数据刷新才滑动。
-  const bucketNow = useMinuteClock(multiPingActive);
-  const localLineOverrides = useNodePingLineOverrides(uuid);
   // 行序与条数由全局线路选择决定（CFSM 口径）：选几条所有节点就显示几行；
   // 这台节点未被后台分配某条线路时保留该行，显示「未分配/无样本」。
   // 访客本机换过的行（PingLineSwitcher）盖在其上：换向后台已撤销的任务时自动回落默认。
@@ -123,9 +134,7 @@ export function useNodeCardModel(
       ...baseTaskIds,
       ...realPingLines.map((line) => line.taskId),
     ]);
-    const effectiveOverrides: PingLineOverrides = Object.fromEntries(
-      Object.entries(localLineOverrides).filter(([, taskId]) => knownTaskIds.has(taskId)),
-    );
+    const effectiveOverrides = pickKnownPingLineOverrides(localLineOverrides, knownTaskIds);
     const visibleTaskIds = resolveNodePingLineTaskIds(baseTaskIds, effectiveOverrides);
     // 按行号渲染而不是按任务 id：访客在某行换了线路后，这一行的位置和行数保持稳定。
     return visibleTaskIds
@@ -166,6 +175,44 @@ export function useNodeCardModel(
     realPingLines,
     uuid,
   ]);
+
+  // 多线路开着但一行都没配出来时回退单线路。单线路查询此刻被 multiPingActive 禁用
+  // (loadState 恒 pending),回退数据取多线路 store 里的第一条后台分配线路。
+  const overviewStatus = usePingOverviewStatus();
+  const fallback = resolveHomepagePingFallback({
+    displayLineCount: homepagePingLines.length,
+    backendLineCount: realPingLines.length,
+    overviewSettled: overviewStatus.status === "ready" || overviewStatus.status === "error",
+  });
+  const fallbackLine = fallback.mode === "fallback-line" ? realPingLines[0] : null;
+  const hasRealHomepagePingBinding = fallback.hasBinding;
+  const ping: PingOverviewItem = fallbackLine
+    ? {
+        client: fallbackLine.client,
+        isAssigned: true,
+        loadState: "ready",
+        lastValue: fallbackLine.lastValue,
+        samples: fallbackLine.samples,
+        max: fallbackLine.max,
+        loss: fallbackLine.loss,
+      }
+    : realPing;
+  // 状态跟随每条任务数据进入 Store,不再订阅全局 isRefreshing。这样后台轮询开始/结束
+  // 时不会让所有节点卡片仅因一个布尔值变化而重渲染。
+  const pingLoading =
+    hasRealHomepagePingBinding && (ping.loadState ?? "pending") === "pending";
+  const pingError =
+    hasRealHomepagePingBinding && ping.loadState === "error";
+  const shouldRenderPingBars = shouldRenderHomepagePingBars(
+    hasRealHomepagePingBinding,
+    ping.isAssigned,
+  );
+  const pingBuckets = usePingBuckets(
+    ping,
+    pingBucketCount,
+    !multiPingActive || fallback.mode === "fallback-line",
+    offlineSince,
+  );
 
   const metaModel = useMemo(() => {
     if (!meta) return null;

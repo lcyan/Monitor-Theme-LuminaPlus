@@ -5,6 +5,22 @@ export interface TrafficResetDisplay {
   title: string;
 }
 
+/**
+ * 到期日的「几号」。纯日期串( monitor 后台的到期日格式 )按字面那一天取——
+ * resolveExpireTimestamp 对它们按 UTC 零点解析,再取本地 getDate() 会在 UTC 以西
+ * 时区整体偏移一天;format.ts 的日历日计算修过同一类问题,这里口径必须一致。
+ */
+export function resolveResetDayOfMonth(
+  expiredAt: string | number | null | undefined,
+): number | null {
+  if (typeof expiredAt === "string") {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(expiredAt.trim());
+    if (match) return Number(match[3]);
+  }
+  const ts = resolveExpireTimestamp(expiredAt);
+  return ts == null ? null : new Date(ts).getDate();
+}
+
 /** 与到期日期展示使用同一浏览器时区；只推导月度计划，不改变流量计数。 */
 export function getTrafficResetDisplay(
   expiredAt: string | number | null | undefined,
@@ -14,7 +30,8 @@ export function getTrafficResetDisplay(
   if (timestamp == null || !Number.isFinite(now)) return null;
   if ((timestamp - now) / 86_400_000 > LONG_TERM_EXPIRE_DAYS) return null;
 
-  const day = new Date(timestamp).getDate();
+  const day = resolveResetDayOfMonth(expiredAt);
+  if (day == null) return null;
   const today = new Date(now);
   const year = today.getFullYear();
   const month = today.getMonth();

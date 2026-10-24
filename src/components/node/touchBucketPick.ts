@@ -31,3 +31,43 @@ export function resolveTouchBucketIndex(
   const ratio = (clientX - rect.left) / rect.width;
   return Math.max(0, Math.min(count - 1, Math.floor(ratio * count)));
 }
+
+/**
+ * 触屏选桶会话的收尾状态机（pick / leave / cancel）。
+ *
+ * cancel 是滚动抢走指针的信号（iOS/Android 在元素上起滚时必发 pointercancel）：
+ * 这一下不是「想看数值」，气泡和选中一律收掉、长按计时作废 —— 与 CanvasStrip 的
+ * `endTouch(event, false)` 同一口径。leave 则相反：长按保持期间不能抢收尾（手指只是
+ * 划出了柱区），空闲时才清。
+ */
+export interface TouchBucketSessionState {
+  hoveredIndex: number | null;
+  selectedIndex: number | null;
+  /** 长按计时是否在跑（决定 leave 能不能抢收尾）。 */
+  holdActive: boolean;
+}
+
+export type TouchBucketSessionEvent =
+  | { type: "pick"; index: number }
+  | { type: "cancel" }
+  | { type: "leave" };
+
+export const IDLE_TOUCH_BUCKET_SESSION: TouchBucketSessionState = {
+  hoveredIndex: null,
+  selectedIndex: null,
+  holdActive: false,
+};
+
+export function reduceTouchBucketSession(
+  state: TouchBucketSessionState,
+  event: TouchBucketSessionEvent,
+): TouchBucketSessionState {
+  switch (event.type) {
+    case "pick":
+      return { hoveredIndex: event.index, selectedIndex: event.index, holdActive: true };
+    case "cancel":
+      return IDLE_TOUCH_BUCKET_SESSION;
+    case "leave":
+      return state.holdActive ? state : IDLE_TOUCH_BUCKET_SESSION;
+  }
+}
