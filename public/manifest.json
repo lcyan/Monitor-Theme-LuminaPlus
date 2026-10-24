@@ -11,9 +11,15 @@
   "theme_color": "#000000",
   "icons": [
     {
-      "src": "/favicon.svg",
+      "src": "/icon.svg",
       "type": "image/svg+xml",
       "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/touch-icon.png",
+      "type": "image/png",
+      "sizes": "180x180",
       "purpose": "any"
     }
   ]

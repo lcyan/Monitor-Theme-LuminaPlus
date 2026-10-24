@@ -91,7 +91,8 @@ preview.png
 ├── preview.png
 └── dist/
     ├── index.html
-    └── apple-touch-icon.png
+    ├── icon.svg
+    └── touch-icon.png
 ```
 
 ## 自定义背景资源

@@ -12,8 +12,12 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="LuminaPlus" />
     <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- 站点图标不要叫 favicon.svg / apple-touch-icon.png：monitor hub 对这几个传统
+         图标路径会用自己内置的图标硬编码响应（/favicon.svg 实际返回 64×64 的 PNG），
+         主题放的文件到不了浏览器，manifest 声明 SVG 却拿到 PNG 还会报
+         “Resource size is not correct”。用自定义名字才能从主题 dist 透传。 -->
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/touch-icon.png" />
     <meta property="og:title" content="Monitor Theme LuminaPlus" />
     <meta property="og:description" content="A refined public status theme for monitor." />
     <meta name="twitter:card" content="summary_large_image" />
