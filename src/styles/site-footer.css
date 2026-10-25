@@ -15,6 +15,12 @@
   white-space: nowrap;
 }
 
+/* 构建时烘进 bundle 的主题版本号：安静的后缀，不与署名链接抢视觉。 */
+.site-footer-version {
+  font-size: 11px;
+  opacity: 0.9;
+}
+
 .site-footer-sep {
   opacity: 0.55;
 }
