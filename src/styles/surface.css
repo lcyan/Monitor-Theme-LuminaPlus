@@ -357,7 +357,9 @@ body::after {
   right: calc(100% + 8px);
   display: inline-flex;
   width: max-content;
-  max-width: min(340px, calc(100vw - 5rem));
+  /* 登录管理员最多 8 个 36px 圆钮 + 7 个 8px 间距 = 344px；上限必须 ≥ 内容宽，
+     否则 overflow:hidden 会裁掉最右侧的"管理"齿轮（曾设 340px 导致切边）。 */
+  max-width: min(352px, calc(100vw - 5rem));
   align-items: center;
   gap: 8px;
   overflow: hidden;
