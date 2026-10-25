@@ -12,12 +12,14 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="LuminaPlus" />
     <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
-    <!-- 站点图标不要叫 favicon.svg / apple-touch-icon.png：monitor hub 对这几个传统
-         图标路径会用自己内置的图标硬编码响应（/favicon.svg 实际返回 64×64 的 PNG），
-         主题放的文件到不了浏览器，manifest 声明 SVG 却拿到 PNG 还会报
-         “Resource size is not correct”。用自定义名字才能从主题 dist 透传。 -->
-    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <link rel="apple-touch-icon" href="/touch-icon.png" />
+    <!-- 这两个路径是 hub 的契约(frontend.rs ICON_PATHS):「站点图标」设置接管它们——
+         设置了就服务上传的图标(PNG/SVG 都可能,所以不要写 type,浏览器自己嗅探),
+         未设置/「用主题自带的」时服务主题包里的这两个文件;HTML 里的 URL 还会被 hub
+         盖上 ?v=ETag 缓存戳。改名绕开(0.4.6 试过)只会让设置失效、
+         「用主题自带的」回落到默认主题的图标。PWA manifest 则用 /favicon.svg?theme
+         固定取主题自带的那份,声明才与真实资源永远一致。 -->
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta property="og:title" content="Monitor Theme LuminaPlus" />
     <meta property="og:description" content="A refined public status theme for monitor." />
     <meta name="twitter:card" content="summary_large_image" />
